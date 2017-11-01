@@ -1,0 +1,14 @@
+deps/*
+!deps/glad/
+!deps/stb/
+
+*.BACKUP
+.vs/
+Debug/
+*.asm
+*.sln
+*.obj
+*.psess
+*.vsp
+*.pdb/
+*.pdb
