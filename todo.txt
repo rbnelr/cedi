@@ -27,5 +27,12 @@ DONE:
 TODO
 -FEATURES:
  
+ shift select
+ -> highlight selection
+ -> deleting selected block with BACKSPACE/DELETE or by overwriting it via typing
+ -> select copy and paste
+ -> windows copy/paste clipboard would be useful
+ -> line swap hotkey (CTRL-T in notepad++)
+ 
 -BUGS:
  
