@@ -97,17 +97,68 @@ static void move_cursor_horiz (s32 diff) {
 	}
 }
 static void move_cursor_verti (s32 diff) {
-	#if 0
+	
+	struct Line {
+		utf32*	begin;
+		u32		len; // not counting newline, "\nabc\n1\n4\n" are 5 lines of length 0 3 1 1 0
+	};
+	
+	auto build_lines_list = [] (u32* out_cur_line_i, u32* out_cur_line_char_i) -> std::vector<Line> {
+		
+		std::vector<Line> ret;
+		ret.reserve(1024);
+		
+		ret.push_back({ &buffer[0] });
+		
+		u32 line_char_i = 0;
+		
+		for (u32 i=0; i<=buffer.size(); ++i) { // also process null terminator to make 'i == cursor_offs' if work on last char
+			
+			if (i == cursor_offs) {
+				*out_cur_line_i =		ret.size() -1;
+				*out_cur_line_char_i =	line_char_i;
+			}
+			
+			if (buffer[i] == U'\n' || buffer[i] == U'\0') { // calculate lenth of final line
+				ret.back().len = line_char_i;
+			}
+			if (buffer[i] == U'\n') {
+				ret.push_back({ &buffer[i +1] });
+				
+				line_char_i = 0;
+			} else {
+				++line_char_i;
+			}
+		}
+		
+		return ret;
+	};
+	
+	u32	cur_line_i;
+	u32	cur_line_char_i;
+	auto lines = build_lines_list(&cur_line_i, &cur_line_char_i);
+	dbg_assert(lines.size() > 0);
+	dbg_assert(cur_line_i < lines.size());
+	
+	dbg_assert(diff == +1 || diff == -1);
+	
 	if (diff < 0) {
-		//cursor_offs -= min(cursor_offs, (u32)-diff);
+		if (cur_line_i == 0) return; // already on first line
+		
+		auto& cur = lines[cur_line_i];
+		auto& prev = lines[cur_line_i -1];
+		
+		utf32* new_cursor = prev.begin +min(prev.len, cur_line_char_i);
+		cursor_offs = (u32)(new_cursor -&buffer[0]);
 	} else {
-		dbg_assert(cursor_offs <= buffer.size());
-		buffer[ cursor_offs ];
+		if (cur_line_i == (lines.size()-1)) return; // already on last line
 		
+		auto& cur = lines[cur_line_i];
+		auto& next = lines[cur_line_i +1];
 		
-		cursor_offs += min(buffer.size() -cursor_offs, (u32)diff);
+		utf32* new_cursor = next.begin +min(next.len, cur_line_char_i);
+		cursor_offs = (u32)(new_cursor -&buffer[0]);
 	}
-	#endif
 }
 
 static bool	resizing_tab_spaces = false;
@@ -192,7 +243,6 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 				} break;
 			}
 		}
-		
 	}
 	
 	if (action != GLFW_REPEAT) { // pressed or released ...

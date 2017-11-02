@@ -21,6 +21,9 @@ DONE:
  
  variable tab space count contollable (ALT+T+<generic increase/decrease buttons>) <generic increase/decrease buttons>
  
+// git commit
+ basic vertical cursor movement (same line character index for now (basicly assuming monospace)) (ARROW_UP, ARROW_DOWN)
+ 
 TODO
 -FEATURES:
  
