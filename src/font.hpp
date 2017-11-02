@@ -128,12 +128,14 @@ namespace font {
 	static std::initializer_list<utf32> ger = { U'ß',U'Ä',U'Ö',U'Ü',U'ä',U'ö',U'ü' };
 	static std::initializer_list<utf32> jp_sym = { U'　',U'、',U'。',U'”',U'「',U'」' };
 	
-	f32 sz = 0 ? 16 : 24;
-	f32 jpsz = 0 ? 24 : 32;
+	f32 sz = 24; // 14 16 24
+	f32 jpsz = floor(sz * 1.75f);
 	
 	static std::initializer_list<Glyph_Range> ranges = { // Could improve the packing by putting 
-		{ nullptr,		sz,		U'\xfffd', U'\xfffd' },
+		{ nullptr,		sz,		U'\xfffd', U'\xfffd' }, // missing glyph placeholder
+		//{ "arial.ttf",	sz,		U'\0', U'\x1f' }, // control characters // does not work for some reason, even though FontForge shows that these glyphs exist at least in arial.ttf
 		{ nullptr,		sz,		U' ', U'~' },
+		//{ nullptr,		sz,		U'\x0', U'\x7f' }, // all ascii
 		{ nullptr,		sz,		ger },
 		{ "meiryo.ttc",	jpsz,	U'\x3040', U'\x30ff' }, // hiragana +katakana +some jp puncuation
 		{ "meiryo.ttc",	jpsz,	jp_sym },
@@ -141,7 +143,7 @@ namespace font {
 	
 	#undef R
 	
-	static u32 texw = 256;
+	static u32 texw = 512; // hopefully large enough for now, if not 
 	static u32 texh = 512;
 	
 	struct Font {
@@ -151,7 +153,7 @@ namespace font {
 		u32						glyphs_count;
 		stbtt_packedchar*		glyphs_packed_chars;
 		
-		bool init (cstr latin_filename, u32 fontsize=16) {
+		bool init (cstr latin_filename) {
 			
 			vbo.init();
 			tex.alloc(texw, texh);
@@ -236,7 +238,10 @@ namespace font {
 			return 0; // missing glyph
 		}
 		
-		void draw_buffer (Basic_Shader cr shad, std::basic_string<utf32> cr buffer) {
+		struct Line {
+			v2 a;
+			v2 b;
+		} draw_buffer (Basic_Shader cr shad, std::basic_string<utf32> cr buffer, u32 cursor_offs) {
 			
 			constexpr v2 QUAD_VERTS[] = {
 				v2(1,0),
@@ -261,13 +266,17 @@ namespace font {
 			
 			v2 pos_px = v2(border_left, border_top +sz);
 			
-			v4 col = 1;
+			v4 base_col = 1;
 			
-			for (utf32 c : buffer) {
+			v2 cursor_pos_px;
+			
+			u32 line_i=0;
+			u32 line_char_i=0;
+			
+			for (u32 buf_char_i=0; buf_char_i<(buffer.size()+1); ++buf_char_i) {
+				utf32 c = buffer[buf_char_i];
 				
-				bool draw_newline = false;
-				bool newline = c == U'\n';
-				if (!newline || draw_newline) {
+				auto emit_glyph = [&] (utf32 c, v4 col) {
 					
 					stbtt_aligned_quad quad;
 					
@@ -280,13 +289,65 @@ namespace font {
 							/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
 							/*col*/ col });
 					}
+					
+				};
+				
+				if (line_char_i == 0) {
+					emit_glyph(U'0' +(line_i / 10) % 10, base_col*v4(1,1,1, 0.25f));
+					emit_glyph(U'0' +(line_i /  1) % 10, base_col*v4(1,1,1, 0.25f));
+					emit_glyph(U'|', base_col*v4(1,1,1, 0.1f));
 				}
 				
-				if (newline) {
-					pos_px.x = border_left;
-					pos_px.y += sz;
+				if (buf_char_i == cursor_offs) {
+					cursor_pos_px = pos_px;
 				}
 				
+				switch (c) {
+					case U'\t': {
+						s32 spaces_needed = tab_spaces -(line_char_i % tab_spaces);
+						
+						for (s32 j=0; j<spaces_needed; ++j) {
+							auto c = U' ';
+							if (draw_whitespace) {
+								c = j<spaces_needed-1 ? U'-' : U'>';
+							}
+							
+							emit_glyph(c, base_col*v4(1,1,1, 0.1f));
+							
+							++line_char_i;
+						}
+						
+					} break;
+					
+					case U'\n': {
+						if (draw_whitespace) {
+							// draw backslash and t at the same position to create a '\n' glypth
+							auto tmp = pos_px;
+							emit_glyph(U'\\', base_col*v4(1,1,1, 0.1f));
+							pos_px = tmp;
+							emit_glyph(U'n', base_col*v4(1,1,1, 0.1f));
+						}
+						
+						pos_px.x = border_left;
+						pos_px.y += sz;
+						
+						line_char_i = 0;
+						++line_i;
+					} break;
+					
+					case U'\0': { // this null terminator is just so we print the line numbers on a empty last line in the file ("line1\n" -> line2 also has line numbers)
+						// do nothing
+					} break;
+					
+					default: {
+						emit_glyph(c, base_col);
+						++line_char_i;
+					} break;
+				}
+			}
+			
+			if (buffer.size() == cursor_offs) {
+				cursor_pos_px = pos_px;
 			}
 			
 			#if SHOW_TEXTURE
@@ -309,6 +370,7 @@ namespace font {
 			
 			glDrawArrays(GL_TRIANGLES, 0, text_data.size());
 			
+			return { cursor_pos_px, cursor_pos_px -v2(0, sz) };
 		}
 	};
 	

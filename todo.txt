@@ -7,10 +7,22 @@ DONE:
  switched from my own array class to std::vector and std::string (also std::array and std::initializer_list)
  reworked font rendering
  
+#2017.11.02 Do abend
+ switched shaders to top-zero pixel coordinates
+ 
+ implemented basic cursor (no vertical cursor movement for now)
+  -moving cursor (ARROW_LEFT, ARROW_RIGHT)
+  -drawing cursor
+  -deleting and inserting characters (type to insert, BACKSPACE to delete left DELETE to delete right)
+ 
+ tab handling
+ 
+ implemented toggable drawing of special characters (newline and tabs) (ALT+N)
+ 
+ variable tab space count contollable (ALT+T+<generic increase/decrease buttons>) <generic increase/decrease buttons>
+ 
 TODO
 -FEATURES:
- 
- switch everything to top-zero pixel coordinates
  
 -BUGS:
  

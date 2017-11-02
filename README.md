@@ -1,5 +1,15 @@
 # cedi (my text/code editor)
  cedi - stands for "Code-EDItor" or "C-EDItor" (C the language)<br>
+ 
+## controls
+ <table>
+	<tr><td>keys</td>				<td>default</td>	<td>function</td></tr>
+	<tr><td>arrow keys</td>			<td></td>			<td>text cursor control</td></tr>
+	<tr><td>ALT+N</td>				<td>off</td>		<td>toggle newline and tab character visualisation</td></tr>
+	<tr><td>ALT+T+<inc/dec></td>	<td>4 spaces</td>	<td>change tab spaces count</td></tr>
+ </table>
+ 
+### technical specs
  c++11 and opengl (glfw/glad/opengl portable graphics, stb_truetype text rendering)<br>
  
  most likely windows only for now (could end up being portable, without me noticing)<br>

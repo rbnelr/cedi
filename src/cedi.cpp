@@ -53,30 +53,67 @@ static s32			scrollwheel_diff;
 
 static void toggle_fullscreen ();
 
-static std::basic_string<utf32> buffer = U"test Tst 123 あべし";
-struct buf_cursor {
-	u32	offs;
-};
-static buf_cursor cursor = { strlen(U"test Tst 123 あべし") -2 };
+#define TEST U"test Tst\n123\nかきくけこ　ゴゴごご\nあべし\nABeShi\n"
+#define C_PROG \
+	U"\n" \
+	U"#include <stdio.h>\n" \
+	U"\n" \
+	U"int main (int argc, char** argv) {\n" \
+	U"	\n" \
+	U"	printf(\"Hello World!\\n\");\n" \
+	U"	\n" \
+	U"	return 0;\n" \
+	U"}\n"
+#define TEST2 U"static void insert_char (utf32 c) {\n"
+
+static std::basic_string<utf32> buffer = C_PROG;
+static u32 cursor_offs = 0;
 
 static void insert_char (utf32 c) {
-	dbg_assert(cursor.offs <= buffer.size());
-	buffer.insert( buffer.begin() +cursor.offs, (utf32)c );
-	++cursor.offs;
+	dbg_assert(cursor_offs <= buffer.size());
+	buffer.insert( buffer.begin() +cursor_offs, (utf32)c );
+	++cursor_offs;
 }
 static void delete_prev_char () { // backspace key
-	if (cursor.offs != 0) {
-		dbg_assert(cursor.offs <= buffer.size());
-		buffer.erase( cursor.offs -1, 1 );
-		--cursor.offs;
+	if (cursor_offs != 0) {
+		dbg_assert(cursor_offs <= buffer.size());
+		buffer.erase( cursor_offs -1, 1 );
+		--cursor_offs;
 	}
 }
 static void delete_next_char () { // delete key
-	if (cursor.offs != buffer.size()) {
-		dbg_assert(cursor.offs < buffer.size());
-		buffer.erase( cursor.offs, 1 );
+	if (cursor_offs != buffer.size()) {
+		dbg_assert(cursor_offs < buffer.size());
+		buffer.erase( cursor_offs, 1 );
 	}
 }
+
+static void move_cursor_horiz (s32 diff) {
+	if (diff < 0) {
+		cursor_offs -= min(cursor_offs, (u32)-diff);
+	} else {
+		dbg_assert(cursor_offs <= buffer.size());
+		cursor_offs += min(buffer.size() -cursor_offs, (u32)diff);
+	}
+}
+static void move_cursor_verti (s32 diff) {
+	#if 0
+	if (diff < 0) {
+		//cursor_offs -= min(cursor_offs, (u32)-diff);
+	} else {
+		dbg_assert(cursor_offs <= buffer.size());
+		buffer[ cursor_offs ];
+		
+		
+		cursor_offs += min(buffer.size() -cursor_offs, (u32)diff);
+	}
+	#endif
+}
+
+static bool	resizing_tab_spaces = false;
+
+static s32	tab_spaces = 4;
+static bool	draw_whitespace = false;
 
 static void glfw_error_proc (int err, cstr msg) {
 	fprintf(stderr, ANSI_COLOUR_CODE_RED "GLFW Error! 0x%x '%s'\n" ANSI_COLOUR_CODE_NC, err, msg);
@@ -85,36 +122,94 @@ static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
 	scrollwheel_diff += (s32)floor(yoffset);
 }
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
+	//printf("glfw_text_proc: '%c' [%x]\n", codepoint, codepoint);
 	insert_char(codepoint);
 }
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
-	if (action == GLFW_RELEASE) return;
-	
-	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT);
+	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
 	
 	//cstr name = glfwGetKeyName(key, scancode);
 	//printf("Button %s: %d\n", name ? name : "<null>", action);
 	
-	switch (key) {
-		case GLFW_KEY_BACKSPACE: {
-			delete_prev_char();
-		} break;
-		case GLFW_KEY_DELETE: {
-			delete_next_char();
-		} break;
-		case GLFW_KEY_ENTER:
-		case GLFW_KEY_KP_ENTER: {
-			insert_char(U'\n');
-		} break;
+	s32 generic_incdec = 0;
+	
+	if (action != GLFW_RELEASE) { // pressed or repeated ...
 		
-		case GLFW_KEY_F11: {
-			toggle_fullscreen();
-		} break;
-		
-		default: {
-			// do nothing
-		} break;
+		switch (key) {
+			case GLFW_KEY_BACKSPACE: {
+				delete_prev_char();
+			} break;
+			case GLFW_KEY_DELETE: {
+				delete_next_char();
+			} break;
+			case GLFW_KEY_ENTER:
+			case GLFW_KEY_KP_ENTER: {
+				insert_char(U'\n');
+			} break;
+			case GLFW_KEY_TAB: {
+				insert_char(U'\t');
+			} break;
+			
+			case GLFW_KEY_LEFT: {
+				move_cursor_horiz(-1);
+			} break;
+			case GLFW_KEY_RIGHT: {
+				move_cursor_horiz(+1);
+			} break;
+			
+			case GLFW_KEY_UP: {
+				move_cursor_verti(-1);
+			} break;
+			case GLFW_KEY_DOWN: {
+				move_cursor_verti(+1);
+			} break;
+			
+			// generic decrease
+			case GLFW_KEY_MINUS:
+			case GLFW_KEY_KP_SUBTRACT : {
+				generic_incdec = -1;
+			} break;
+			// generic increase
+			case GLFW_KEY_EQUAL: // pseudo '+' key, this would be the '+' key when shift is pressed
+			case GLFW_KEY_KP_ADD: {
+				generic_incdec = +1;
+			} break;
+		}
 	}
+	
+	if (action == GLFW_PRESS) { // pressed ...
+		
+		switch (key) {
+			case GLFW_KEY_F11: { // ... key
+				toggle_fullscreen();
+			} break;
+		}
+		
+		if (mods & GLFW_MOD_ALT) { // ... ALT+key
+			switch (key) {
+				case GLFW_KEY_N: {
+					draw_whitespace = !draw_whitespace;
+				} break;
+			}
+		}
+		
+	}
+	
+	if (action != GLFW_REPEAT) { // pressed or released ...
+		
+		if (mods & GLFW_MOD_ALT) { // ... ALT+key
+			switch (key) {
+				case GLFW_KEY_T : {
+					resizing_tab_spaces = action == GLFW_PRESS;
+				} break;
+			}
+		}
+	}
+	
+	if (resizing_tab_spaces) {
+		tab_spaces = max(tab_spaces +generic_incdec, 1);
+	}
+	
 }
 
 static void setup_glfw () {
@@ -573,30 +668,39 @@ static void frame () {
 	glClearColor(background_col.x, background_col.y, background_col.z, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	
-	
 	{
+		// draw buffer text
 		shad_tex.bind();
 		shad_tex.wnd_dim.set( (v2)wnd_dim );
 		shad_tex.bind_texture(g_font.tex);
 		
-		g_font.draw_buffer(shad_tex, buffer);
-	}
-	
-	{
+		auto cursor_line = g_font.draw_buffer(shad_tex, buffer, cursor_offs);
+		
+		// draw cursor line
 		shad_px_col.bind();
 		shad_px_col.wnd_dim.set( (v2)wnd_dim );
 		
-		v4 col = v4(1,1,1,1);
-		
-		std::initializer_list<Vertex> data = {
-			{ v2(50.5f, 50.5f), col },
-			{ v2(200.5f, 51.5f), col },
-		};
-		
-		vbo_px_col.upload(data);
-		vbo_px_col.bind(shad_px_col);
-		
-		glDrawArrays(GL_LINES, 0, data.size());
+		{
+			v4 col = v4(srgb(147,199,99), 1);
+			
+			f32 w = 3;
+			f32 l = -0;
+			f32 r = +w;
+			
+			std::initializer_list<Vertex> data = {
+				{ cursor_line.a +v2(r,0), col },
+				{ cursor_line.b +v2(r,0), col },
+				{ cursor_line.a +v2(l,0), col },
+				{ cursor_line.a +v2(l,0), col },
+				{ cursor_line.b +v2(r,0), col },
+				{ cursor_line.b +v2(l,0), col },
+			};
+			
+			vbo_px_col.upload(data);
+			vbo_px_col.bind(shad_px_col);
+			
+			glDrawArrays(GL_TRIANGLES, 0, data.size());
+		}
 	}
 	
 }
