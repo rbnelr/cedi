@@ -1,0 +1,42 @@
+<NotepadPlus>
+    <Session activeView="0">
+        <mainView activeIndex="1">
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="273464" startPos="756" endPos="756" selMode="0" lang="Batch" encoding="-1" filename="D:\Cproj\cedi\build.bat" backupFilePath="" originalFileLastModifTimestamp="1509575555" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="512" mapWrapIndentMode="-1" mapIsWrap="no" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="273464" startPos="277" endPos="277" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\todo.txt" backupFilePath="" originalFileLastModifTimestamp="1509584391" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="512" mapWrapIndentMode="-1" mapIsWrap="no" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="1876" startPos="970" endPos="970" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\README.md" backupFilePath="" originalFileLastModifTimestamp="1509557495" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="0" mapWrapIndentMode="-1" mapIsWrap="no" />
+            <File firstVisibleLine="206" xOffset="0" scrollWidth="273464" startPos="6921" endPos="6921" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\src\font.hpp" backupFilePath="" originalFileLastModifTimestamp="1509584149" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="8454144" mapWrapIndentMode="-1" mapIsWrap="no" />
+        </mainView>
+        <subView activeIndex="0">
+            <File firstVisibleLine="438" xOffset="0" scrollWidth="3084" startPos="11305" endPos="11305" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\src\cedi.cpp" backupFilePath="" originalFileLastModifTimestamp="1509584172" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="16777217" mapWrapIndentMode="-1" mapIsWrap="no">
+                <Fold line="28" />
+                <Fold line="53" />
+                <Fold line="56" />
+                <Fold line="60" />
+                <Fold line="87" />
+                <Fold line="102" />
+                <Fold line="111" />
+                <Fold line="119" />
+                <Fold line="126" />
+                <Fold line="137" />
+                <Fold line="165" />
+                <Fold line="194" />
+                <Fold line="232" />
+                <Fold line="238" />
+                <Fold line="244" />
+                <Fold line="250" />
+                <Fold line="256" />
+                <Fold line="262" />
+                <Fold line="269" />
+                <Fold line="307" />
+                <Fold line="336" />
+            </File>
+            <File firstVisibleLine="186" xOffset="0" scrollWidth="3084" startPos="11332" endPos="11332" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\src\include\lang_helpers.hpp" backupFilePath="" originalFileLastModifTimestamp="1509579031" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="1140359168" mapWrapIndentMode="-1" mapIsWrap="no">
+                <Fold line="192" />
+                <Fold line="233" />
+                <Fold line="281" />
+                <Fold line="289" />
+            </File>
+            <File firstVisibleLine="550" xOffset="0" scrollWidth="3084" startPos="23216" endPos="23216" selMode="0" lang="C++" encoding="-1" filename="D:\Cproj\cedi\deps\stb\stb_truetype.h" backupFilePath="" originalFileLastModifTimestamp="1508828948" mapFirstVisibleDisplayLine="-1" mapFirstVisibleDocLine="-1" mapLastVisibleDocLine="-1" mapNbLine="-1" mapHigherPos="-1" mapWidth="-1" mapHeight="-1" mapKByteInDoc="1140948992" mapWrapIndentMode="-1" mapIsWrap="no" />
+        </subView>
+    </Session>
+</NotepadPlus>
