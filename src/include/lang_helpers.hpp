@@ -181,84 +181,132 @@ static FORCEINLINE At_Scope_Exit<FUNC> operator+(_Defer_Helper, FUNC f) {
 		return val = (TYPE)((UNDERLYING_TYPE)val +1); \
 	}
 
+#if 1 // try using std::vector and std::array
+#include <array>
+#include <vector>
+#include <string>
+#else
 #include <initializer_list>
 
-template <typename T, typename LEN_T=u32>
-struct array {
-	T*		arr;
+// WARNING: code is not tested, look at older git versions if you intend to use these
+template <typename LEN_T=u32>
+struct _array { // common implementation to prevent code bloat, and allow generic non-template functions to use the array
+	byte*	arr;
 	LEN_T	len;
+	u32		_stride;
 	
-	array () {}
-	array (T* a, LEN_T l): arr{a}, len{l} {}
-	constexpr array (std::initializer_list<T> l): arr{ (T*)l.begin() }, len{ (LEN_T)l.size() } {
-				//static_assert(safe_cast(LEN_T, l.size()), "array<> :: initializer_list.size() out of range for len!"); // can't do this in c++
-			}
-	template<LEN_T N>			constexpr array (T (& a)[N]): arr{a}, len{N} {}
-	
-	operator array<T const> () { return {arr, len}; }
-	
-	static array malloc (LEN_T len) {
-		return { (T*)::malloc(len*sizeof(T)), len };
+	void _malloc (LEN_T len_, u32 stride) {
+		arr = (byte*)::malloc(len_*stride);
+		len = len_;
+		_stride = stride;
+	}
+	static _array malloc (LEN_T len, u32 stride) {
+		_array ret;
+		ret._malloc(len, stride);
+		return ret;
 	}
 	void free () {
 		::free(arr);
 	}
 	void realloc (LEN_T new_len) {
-		arr = (T*)::realloc(arr, new_len*sizeof(T));
+		arr = (byte*)::realloc(arr, new_len*_stride);
 		len = new_len;
 	}
 	
-	T cr operator[] (LEN_T indx) const {
+	void* operator[] (LEN_T indx) {
 		dbg_assert(indx >= 0 && indx < len, "array:: operator[]: indx: %d len: %d", indx, len);
-		return arr[indx];
-	}
-	T& operator[] (LEN_T indx) {
-		dbg_assert(indx >= 0 && indx < len, "array:: operator[]: indx: %d len: %d", indx, len);
-		return arr[indx];
+		return arr[indx*_stride];
 	}
 	
-	T*					begin () {					return arr; }
-	constexpr T const*	begin () const {			return arr; }
+	void*					begin () {						return arr; }
+	constexpr void const*	begin () const {				return arr; }
 	
-	T*					end () {					return &arr[len]; }
-	constexpr T const*	end () const {				return &arr[len]; }
+	void*					end () {						return &arr[len*_stride]; }
+	constexpr void const*	end () const {					return &arr[len*_stride]; }
 	
-	LEN_T				get_i (T const* it) {		return it -arr; }
-	constexpr LEN_T		get_i (T const* it) const {	return it -arr; }
+	// inefficient because of divide
+	//LEN_T					get_i (void const* it) {		return (it -arr) / _stride; }
+	//constexpr LEN_T			get_i (void const* it) const {	return (it -arr) / _stride; }
 	
 };
 
 template <typename T, typename LEN_T=u32>
-struct dynarr : array<T, LEN_T> {
+struct array : _array<LEN_T> {
+	static constexpr u32 STRIDE = sizeof(T);
 	
-	static dynarr malloc (LEN_T new_len) {
-		dynarr ret = {};
-		ret.realloc(new_len);
-		ret.len = new_len;
+	array () {}
+	constexpr array (T* a, LEN_T l): _array<LEN_T>{(byte*)a, l, STRIDE} {}
+	constexpr array (std::initializer_list<T> l): _array<LEN_T>{ (byte*)l.begin(), (LEN_T)l.size(), STRIDE} {
+				//static_assert(safe_cast(LEN_T, l.size()), "array<> :: initializer_list.size() out of range for len!"); // can't do this in c++
+			}
+	template<LEN_T N> constexpr array (T (& a)[N]): _array<LEN_T>{(byte*)a, N, STRIDE} {}
+	
+	static constexpr array null () { return {nullptr, 0}; } // when arr==nullptr, realloc() still works -> so we can push() on a array initialized with null
+	
+	operator array<T const> () { return array(arr, len); }
+	
+	static array malloc (LEN_T len) {
+		array ret;
+		ret._malloc(len, STRIDE);
 		return ret;
 	}
-	void free () {
-		::free(this->arr);
-		this->len = 0;
+	
+	T* get_arr () const {
+		return (T*)this->arr;
 	}
-	void realloc (LEN_T new_len) {
-		this->arr = (T*)::realloc(this->arr, new_len*sizeof(T));
-		this->len = new_len;
+	
+	// override these operators because the compiler might not realize that our stride always stays constant (variable stride of our parent class is only so that we can use this array in a generic function)
+	T cr operator[] (LEN_T indx) const {
+		dbg_assert(this->_stride == STRIDE); // sanity checking
+		dbg_assert(indx >= 0 && indx < this->len, "array:: operator[]: indx: %d len: %d", indx, this->len);
+		return get_arr()[indx];
 	}
+	T& operator[] (LEN_T indx) {
+		dbg_assert(this->_stride == STRIDE); // sanity checking
+		dbg_assert(indx >= 0 && indx < this->len, "array:: operator[]: indx: %d len: %d", indx, this->len);
+		return get_arr()[indx];
+	}
+	
+	T*					begin () {					return get_arr(); }
+	constexpr T const*	begin () const {			return get_arr(); }
+	
+	T*					end () {					return get_arr() +this->len*STRIDE; }
+	constexpr T const*	end () const {				return get_arr() +this->len*STRIDE; }
+	
+	LEN_T				get_i (T const* it) {		return it -get_arr(); }
+	constexpr LEN_T		get_i (T const* it) const {	return it -get_arr(); }
+	
+};
+
+template<typename T, typename FUNC>
+static T* lsearch (array<T> arr, FUNC comp_with) {
+	for (T& x : arr) {
+		if (comp_with(&x)) return &x; // found
+	}
+	return nullptr; // not found
+}
+
+template <typename T, typename LEN_T=u32>
+struct dynarr : array<T, LEN_T> {
+	
+	constexpr dynarr (T* a, LEN_T l): array<T, LEN_T>{a, l} {}
+	dynarr () {}
+	
+	static constexpr dynarr null () { return {nullptr, 0}; } // when arr==nullptr, realloc() still works -> so we can push() on a array initialized with null
 	
 	LEN_T grow_by (LEN_T diff) {
 		LEN_T old_len = this->len;
-		realloc(this->len +diff);
+		this->realloc(this->len +diff);
 		return old_len;
 	}
 	void shrink_by (LEN_T diff) {
 		dbg_assert(diff <= this->len);
-		realloc(this->len -diff);
+		this->realloc(this->len -diff);
 	}
 	
 	T& push () {
 		LEN_T old_len = grow_by(1);
-		return this->arr[old_len];
+		return get_arr()[old_len];
 	}
 	void push (T cr val) {
 		push() = val;
@@ -278,25 +326,82 @@ struct dynarr : array<T, LEN_T> {
 	void delete_by_moving_last (LEN_T indx) {
 		dbg_assert(indx >= 0 && indx < this->len);
 		if (this->len > 1) {
-			this->arr[indx] = this->arr[this->len -1];
+			get_arr()[indx] = get_arr()[this->len -1];
 		}
 		shrink_by(1);
 	}
 };
 
-static void print_array (array<char>* arr, cstr format, ...) {
-	
-	va_list vl;
-	va_start(vl, format);
-	
+static va_list _print_array (array<char>* arr, cstr format, va_list vl) { // print 
 	for (;;) {
-		auto ret = vsnprintf(arr->arr, arr->len, format, vl);
+		auto ret = vsnprintf(arr->get_arr(), arr->len, format, vl);
 		dbg_assert(ret >= 0);
 		if ((u32)ret < arr->len) break;
 		// buffer was to small, increase buffer size
-		arr->realloc((u32)ret +1);
+		arr->free();
+		*arr = array<char>::malloc((u32)ret +1);
 		// now snprintf has to succeed, so call it again
 	}
+}
+static void print_array (array<char>* arr, cstr format, ...) {
+	va_list vl;
+	va_start(vl, format);
+	
+	_print_array(arr, format, vl);
 	
 	va_end(vl);
+}
+static array<char> print_array (cstr format, ...) {
+	va_list vl;
+	va_start(vl, format);
+	
+	auto ret = array<char>::malloc(128); // overallocate to prevent calling printf twice in most cases
+	_print_array(arr, format, vl);
+	
+	va_end(vl);
+	
+	return ret;
+}
+#endif
+
+
+template<typename T, typename FUNC>
+static T* lsearch (std::vector<T>& arr, FUNC comp_with) {
+	for (T& x : arr) {
+		if (comp_with(&x)) return &x; // found
+	}
+	return nullptr; // not found
+}
+
+static void _prints (std::string* s, cstr format, va_list vl) { // print 
+	for (;;) {
+		auto ret = vsnprintf(&(*s)[0], s->length()+1, format, vl); // i think i'm technically not allowed to overwrite the null terminator
+		dbg_assert(ret >= 0);
+		bool was_big_enough = (u32)ret < s->length()+1;
+		s->resize((u32)ret);
+		if (was_big_enough) break;
+		// buffer was to small, buffer size was increased
+		// now snprintf has to succeed, so call it again
+	}
+}
+static void prints (std::string* s, cstr format, ...) {
+	va_list vl;
+	va_start(vl, format);
+	
+	_prints(s, format, vl);
+	
+	va_end(vl);
+}
+static std::string prints (cstr format, ...) {
+	va_list vl;
+	va_start(vl, format);
+	
+	std::string ret;
+	ret.reserve(128); // overallocate to prevent calling printf twice in most cases
+	ret.resize(ret.capacity());
+	_prints(&ret, format, vl);
+	
+	va_end(vl);
+	
+	return ret;
 }

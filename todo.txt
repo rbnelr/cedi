@@ -1,8 +1,16 @@
 DONE:
  
+#2017.11.01 Mi abend
+ forked from asteroids
+ 
+#2017.11.01 Mi nacht
+ switched from my own array class to std::vector and std::string (also std::array and std::initializer_list)
+ reworked font rendering
+ 
 TODO
 -FEATURES:
- forked from asteroids
+ 
+ switch everything to top-zero pixel coordinates
  
 -BUGS:
  

@@ -37,9 +37,9 @@ rem /main
 
 :vs
 	if [!release!] == [0] (
-		set dbg=/Od /Ob1 /MDd /Zi /DRZ_DBG=1
+		set dbg=/Od /EHsc /Ob1 /MDd /Zi /DRZ_DBG=1
 	) else  (
-		set dbg=/O2 /Ob2 /MD /Zi /Zo /Oi /DRZ_DBG=0
+		set dbg=/O2 /EHsc /Ob2 /MD /Zi /Zo /Oi /DRZ_DBG=0
 	)
 	
 	set opt=!dbg! /fp:fast /GS-
