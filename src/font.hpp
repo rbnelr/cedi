@@ -62,6 +62,52 @@ struct Texture {
 	}
 };
 
+static std::basic_string<utf32> utf8_to_utf32 (std::basic_string<utf8> cr s) {
+	utf8 const* cur = &s[0];
+	
+	std::basic_string<utf32> ret;
+	ret.reserve( s.length() ); // can never be longer than input
+	
+	for (;;) {
+		if ((*cur & 0b10000000) == 0b00000000) {
+			char c = *cur++;
+			if (c == '\0') break;
+			ret.push_back( c );
+			continue;
+		}
+		if ((*cur & 0b11100000) == 0b11000000) {
+			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
+			utf8 a = *cur++ & 0b00011111;
+			utf8 b = *cur++ & 0b00111111;
+			ret.push_back( a<<6|b );
+			continue;
+		}
+		if ((*cur & 0b11110000) == 0b11100000) {
+			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
+			dbg_assert((cur[2] & 0b11000000) == 0b10000000);
+			utf8 a = *cur++ & 0b00001111;
+			utf8 b = *cur++ & 0b00111111;
+			utf8 c = *cur++ & 0b00111111;
+			ret.push_back( a<<12|b<<6|c );
+			continue;
+		}
+		if ((*cur & 0b11111000) == 0b11110000) {
+			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
+			dbg_assert((cur[2] & 0b11000000) == 0b10000000);
+			dbg_assert((cur[3] & 0b11000000) == 0b10000000);
+			utf8 a = *cur++ & 0b00000111;
+			utf8 b = *cur++ & 0b00111111;
+			utf8 c = *cur++ & 0b00111111;
+			utf8 d = *cur++ & 0b00111111;
+			ret.push_back( a<<18|b<<12|c<<6|d );
+			continue;
+		}
+		dbg_assert(false);
+	}
+	
+	return ret;
+}
+
 namespace font {
 	
 	struct Glyph_Range {
@@ -165,6 +211,9 @@ namespace font {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL,	0);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,	0);
 			
+			//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,	GL_LINEAR_MIPMAP_LINEAR);
+			//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,	GL_LINEAR);
+			
 			return true;
 		}
 		
@@ -187,55 +236,7 @@ namespace font {
 			return 0; // missing glyph
 		}
 		
-		static std::basic_string<utf32> utf8_to_utf32 (std::basic_string<utf8> cr s) {
-			utf8 const* cur = &s[0];
-			
-			std::basic_string<utf32> ret;
-			ret.reserve( s.length() ); // can never be longer than input
-			
-			for (;;) {
-				if ((*cur & 0b10000000) == 0b00000000) {
-					char c = *cur++;
-					if (c == '\0') break;
-					ret.push_back( c );
-					continue;
-				}
-				if ((*cur & 0b11100000) == 0b11000000) {
-					dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-					utf8 a = *cur++ & 0b00011111;
-					utf8 b = *cur++ & 0b00111111;
-					ret.push_back( a<<6|b );
-					continue;
-				}
-				if ((*cur & 0b11110000) == 0b11100000) {
-					dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-					dbg_assert((cur[2] & 0b11000000) == 0b10000000);
-					utf8 a = *cur++ & 0b00001111;
-					utf8 b = *cur++ & 0b00111111;
-					utf8 c = *cur++ & 0b00111111;
-					ret.push_back( a<<12|b<<6|c );
-					continue;
-				}
-				if ((*cur & 0b11111000) == 0b11110000) {
-					dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-					dbg_assert((cur[2] & 0b11000000) == 0b10000000);
-					dbg_assert((cur[3] & 0b11000000) == 0b10000000);
-					utf8 a = *cur++ & 0b00000111;
-					utf8 b = *cur++ & 0b00111111;
-					utf8 c = *cur++ & 0b00111111;
-					utf8 d = *cur++ & 0b00111111;
-					ret.push_back( a<<18|b<<12|c<<6|d );
-					continue;
-				}
-				dbg_assert(false);
-			}
-			
-			return ret;
-		}
-		
-		void draw_text_line (Basic_Shader cr shad, std::basic_string<utf32> cr line, v2 pos_screen, v4 col, u32 highl_char=-1) {
-			
-			v2 pos = v2(pos_screen.x, pos_screen.y -wnd_dim.y);
+		void draw_buffer (Basic_Shader cr shad, std::basic_string<utf32> cr buffer) {
 			
 			constexpr v2 QUAD_VERTS[] = {
 				v2(1,0),
@@ -246,39 +247,58 @@ namespace font {
 				v2(0,1),
 			};
 			
-			#define SHOW_TEXTURE 1
+			#define SHOW_TEXTURE 0
 			
 			std::vector<VBO_Pos_Tex_Col::V> text_data;
-			text_data.reserve( 0*line.length() * 6
+			text_data.reserve( buffer.length() * 6
 					#if SHOW_TEXTURE
 					+6
 					#endif
-					);
+					); // this might be slightly overallocated because there can be characters that are not drawn (newline for ex.)
 			
-			u32 i=0;
-			for (utf32 c : line) {
+			f32 border_left =	2;
+			f32 border_top =	0;
+			
+			v2 pos_px = v2(border_left, border_top +sz);
+			
+			v4 col = 1;
+			
+			for (utf32 c : buffer) {
 				
-				stbtt_aligned_quad quad;
-				
-				stbtt_GetPackedQuad(glyphs_packed_chars, (s32)tex.w,(s32)tex.h, search_glyph(c),
-						&pos.x,&pos.y, &quad, 1);
-				
-				for (v2 quad_vert : QUAD_VERTS) {
-					text_data.push_back({
-						/*pos*/ lerp(v2(quad.x0,-quad.y0), v2(quad.x1,-quad.y1), quad_vert) / (v2)wnd_dim * 2 -1,
-						/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
-						/*col*/ highl_char == i ? v4(1,0.1f,0.1f,1) : col });
+				bool draw_newline = false;
+				bool newline = c == U'\n';
+				if (!newline || draw_newline) {
+					
+					stbtt_aligned_quad quad;
+					
+					stbtt_GetPackedQuad(glyphs_packed_chars, (s32)tex.w,(s32)tex.h, search_glyph(c),
+							&pos_px.x,&pos_px.y, &quad, 1);
+					
+					for (v2 quad_vert : QUAD_VERTS) {
+						text_data.push_back({
+							/*pos*/ lerp(v2(quad.x0,quad.y0), v2(quad.x1,quad.y1), quad_vert),
+							/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
+							/*col*/ col });
+					}
 				}
 				
-				++i;
+				if (newline) {
+					pos_px.x = border_left;
+					pos_px.y += sz;
+				}
+				
 			}
 			
 			#if SHOW_TEXTURE
-			for (v2 quad_vert : QUAD_VERTS) {
-				text_data.push_back({
-					/*pos*/ lerp( ((v2)wnd_dim -v2((f32)tex.w,(f32)tex.h)) / (v2)wnd_dim * 2 -1, 1, quad_vert),
-					/*uv*/ quad_vert,
-					/*col*/ col });
+			{
+				v2 left_bottom =	v2(wnd_dim.x -(f32)tex.w, (f32)tex.h);
+				v2 right_top =		v2(wnd_dim.x, 0);
+				for (v2 quad_vert : QUAD_VERTS) {
+					text_data.push_back({
+						/*pos*/ lerp(left_bottom, right_top, quad_vert),
+						/*uv*/ quad_vert,
+						/*col*/ 1 });
+				}
 			}
 			#endif
 			
@@ -289,10 +309,6 @@ namespace font {
 			
 			glDrawArrays(GL_TRIANGLES, 0, text_data.size());
 			
-		}
-		void draw_text_line_utf8 (Basic_Shader cr shad, std::basic_string<utf8> cr text_, v2 pos_screen, v4 col) {
-			auto line = utf8_to_utf32(text_);
-			draw_text_line(shad, line, pos_screen, col);
 		}
 	};
 	

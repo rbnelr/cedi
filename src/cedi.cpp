@@ -53,11 +53,30 @@ static s32			scrollwheel_diff;
 
 static void toggle_fullscreen ();
 
-static std::basic_string<utf32> buffer;
+static std::basic_string<utf32> buffer = U"test Tst 123 あべし";
 struct buf_cursor {
 	u32	offs;
 };
-static buf_cursor cursor = { 0 };
+static buf_cursor cursor = { strlen(U"test Tst 123 あべし") -2 };
+
+static void insert_char (utf32 c) {
+	dbg_assert(cursor.offs <= buffer.size());
+	buffer.insert( buffer.begin() +cursor.offs, (utf32)c );
+	++cursor.offs;
+}
+static void delete_prev_char () { // backspace key
+	if (cursor.offs != 0) {
+		dbg_assert(cursor.offs <= buffer.size());
+		buffer.erase( cursor.offs -1, 1 );
+		--cursor.offs;
+	}
+}
+static void delete_next_char () { // delete key
+	if (cursor.offs != buffer.size()) {
+		dbg_assert(cursor.offs < buffer.size());
+		buffer.erase( cursor.offs, 1 );
+	}
+}
 
 static void glfw_error_proc (int err, cstr msg) {
 	fprintf(stderr, ANSI_COLOUR_CODE_RED "GLFW Error! 0x%x '%s'\n" ANSI_COLOUR_CODE_NC, err, msg);
@@ -66,10 +85,7 @@ static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
 	scrollwheel_diff += (s32)floor(yoffset);
 }
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
-	//printf("char: '%c' %d\n", (char)codepoint, codepoint);
-	dbg_assert(cursor.offs <= buffer.size());
-	buffer.insert( buffer.begin() +cursor.offs, (utf32)codepoint );
-	++cursor.offs;
+	insert_char(codepoint);
 }
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	if (action == GLFW_RELEASE) return;
@@ -81,16 +97,14 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 	
 	switch (key) {
 		case GLFW_KEY_BACKSPACE: {
-			//auto& last = buffer.back();
-			//if (last.size() == 0) {
-			//	if (buffer.size() > 1) buffer.pop_back();
-			//} else {
-			//	last.pop_back();
-			//}
+			delete_prev_char();
+		} break;
+		case GLFW_KEY_DELETE: {
+			delete_next_char();
 		} break;
 		case GLFW_KEY_ENTER:
 		case GLFW_KEY_KP_ENTER: {
-			//buffer.emplace_back();
+			insert_char(U'\n');
 		} break;
 		
 		case GLFW_KEY_F11: {
@@ -362,7 +376,11 @@ GLSL_VERSION R"_SHAD(
 	uniform vec2	wnd_dim;
 	
 	void main() {
-		gl_Position = vec4(attrib_pos, 0.0, 1.0);
+		vec2 tmp = attrib_pos;
+		tmp.y = wnd_dim.y -tmp.y;
+		vec2 pos_clip = (tmp / wnd_dim) * 2 -1;
+		
+		gl_Position = vec4(pos_clip, 0.0, 1.0);
 		color = attrib_col;
 	}
 )_SHAD",
@@ -384,10 +402,11 @@ GLSL_VERSION R"_SHAD(
 		compile();
 		
 		wnd_dim.loc =		glGetUniformLocation(prog, "wnd_dim");
-		
-		dbg_assert(wnd_dim.loc);
+		dbg_assert(wnd_dim.loc != -1);
 	}
 };
+
+//struct cursor_line  
 
 struct VBO_Pos_Tex_Col {
 	GLuint	vbo;
@@ -438,14 +457,20 @@ struct Shader_Clip_Tex_Col : Basic_Shader {
 	Shader_Clip_Tex_Col (): Basic_Shader(
 // Vertex shader
 GLSL_VERSION R"_SHAD(
-	in		vec2	attrib_pos; // clip
+	in		vec2	attrib_pos; // px
 	in		vec2	attrib_uv;
 	in		vec4	attrib_col;
 	out		vec4	color;
 	out		vec2	uv;
 	
+	uniform vec2	wnd_dim;
+	
 	void main() {
-		gl_Position =	vec4(attrib_pos, 0.0, 1.0);
+		vec2 tmp = attrib_pos;
+		tmp.y = wnd_dim.y -tmp.y;
+		vec2 pos_clip = (tmp / wnd_dim) * 2 -1;
+		
+		gl_Position =	vec4(pos_clip, 0.0, 1.0);
 		uv =			attrib_uv;
 		color =			attrib_col;
 	}
@@ -464,8 +489,14 @@ GLSL_VERSION R"_SHAD(
 )_SHAD"
 	) {}
 	
+	// uniforms
+	Unif_fv2	wnd_dim;
+	
 	void init () {
 		compile();
+		
+		wnd_dim.loc =		glGetUniformLocation(prog, "wnd_dim");
+		dbg_assert(wnd_dim.loc != -1);
 		
 		auto tex = glGetUniformLocation(prog, "tex");
 		dbg_assert(tex != -1);
@@ -543,24 +574,23 @@ static void frame () {
 	glClear(GL_COLOR_BUFFER_BIT);
 	
 	
-	shad_tex.bind();
-	shad_tex.bind_texture(g_font.tex);
-	
-	f32 y = -3 +(font::sz+1)*1;
-	
-	g_font.draw_text_line(shad_tex, buffer, v2(2, y), 1, cursor.offs);
-	y += (font::sz+1);
-	
+	{
+		shad_tex.bind();
+		shad_tex.wnd_dim.set( (v2)wnd_dim );
+		shad_tex.bind_texture(g_font.tex);
+		
+		g_font.draw_buffer(shad_tex, buffer);
+	}
 	
 	{
 		shad_px_col.bind();
-		shad_px_col.wnd_dim.set( wnd_dim );
+		shad_px_col.wnd_dim.set( (v2)wnd_dim );
 		
 		v4 col = v4(1,1,1,1);
 		
 		std::initializer_list<Vertex> data = {
-			{ v2(50, 50), col },
-			{ v2(200, 50), col },
+			{ v2(50.5f, 50.5f), col },
+			{ v2(200.5f, 51.5f), col },
 		};
 		
 		vbo_px_col.upload(data);
