@@ -45,17 +45,62 @@ static f32			dt;
 
 static iv2			wnd_dim;
 static v2			wnd_dim_aspect;
-static iv2			cursor_pos;
+static iv2			mcursor_pos;
 static bool			cursor_in_wnd;
 static s32			scrollwheel_diff;
 
-#include "buttons.hpp"
+//#include "buttons.hpp"
 
-static void glfw_error_proc (int err, const char* msg) {
+static void toggle_fullscreen ();
+
+static std::basic_string<utf32> buffer;
+struct buf_cursor {
+	u32	offs;
+};
+static buf_cursor cursor = { 0 };
+
+static void glfw_error_proc (int err, cstr msg) {
 	fprintf(stderr, ANSI_COLOUR_CODE_RED "GLFW Error! 0x%x '%s'\n" ANSI_COLOUR_CODE_NC, err, msg);
 }
-static void glfw_scroll_proc (GLFWwindow* window, double xoffset, double yoffset) {
+static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
 	scrollwheel_diff += (s32)floor(yoffset);
+}
+static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
+	//printf("char: '%c' %d\n", (char)codepoint, codepoint);
+	dbg_assert(cursor.offs <= buffer.size());
+	buffer.insert( buffer.begin() +cursor.offs, (utf32)codepoint );
+	++cursor.offs;
+}
+static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
+	if (action == GLFW_RELEASE) return;
+	
+	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT);
+	
+	//cstr name = glfwGetKeyName(key, scancode);
+	//printf("Button %s: %d\n", name ? name : "<null>", action);
+	
+	switch (key) {
+		case GLFW_KEY_BACKSPACE: {
+			//auto& last = buffer.back();
+			//if (last.size() == 0) {
+			//	if (buffer.size() > 1) buffer.pop_back();
+			//} else {
+			//	last.pop_back();
+			//}
+		} break;
+		case GLFW_KEY_ENTER:
+		case GLFW_KEY_KP_ENTER: {
+			//buffer.emplace_back();
+		} break;
+		
+		case GLFW_KEY_F11: {
+			toggle_fullscreen();
+		} break;
+		
+		default: {
+			// do nothing
+		} break;
+	}
 }
 
 static void setup_glfw () {
@@ -77,8 +122,9 @@ static void setup_glfw () {
 	glfwGetWindowSize(wnd, &_suggested_wnd_rect.dim.x,&_suggested_wnd_rect.dim.y);
 	
 	glfwSetKeyCallback(wnd, glfw_key_proc);
+	glfwSetCharCallback(wnd, glfw_text_proc);
 	glfwSetScrollCallback(wnd, glfw_scroll_proc);
-	glfwSetMouseButtonCallback(wnd, glfw_mousebutton_proc);
+	//glfwSetMouseButtonCallback(wnd, glfw_mousebutton_proc);
 	
 	glfwMakeContextCurrent(wnd);
 	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
@@ -309,9 +355,11 @@ struct Shader_Px_Col : Basic_Shader {
 	Shader_Px_Col (): Basic_Shader(
 // Vertex shader
 GLSL_VERSION R"_SHAD(
-	in		vec2	attrib_pos; // clip
+	in		vec2	attrib_pos; // px
 	in		vec4	attrib_col;
 	out		vec4	color;
+	
+	uniform vec2	wnd_dim;
 	
 	void main() {
 		gl_Position = vec4(attrib_pos, 0.0, 1.0);
@@ -329,8 +377,15 @@ GLSL_VERSION R"_SHAD(
 )_SHAD"
 	) {}
 	
+	// uniforms
+	Unif_fv2	wnd_dim;
+	
 	void init () {
 		compile();
+		
+		wnd_dim.loc =		glGetUniformLocation(prog, "wnd_dim");
+		
+		dbg_assert(wnd_dim.loc);
 	}
 };
 
@@ -436,9 +491,9 @@ static std::basic_string<utf8>		wnd_title;
 static Font				g_font;
 
 static Shader_Clip_Tex_Col	shad_tex;
-static Shader_Px_Col		shad_clip_col;
+static Shader_Px_Col		shad_px_col;
 
-static VBO_Pos_Col			vbo_clip_col;
+static VBO_Pos_Col			vbo_px_col;
 
 typedef VBO_Pos_Col::V Vertex;
 
@@ -461,11 +516,11 @@ static void init  () {
 	
 	running_avg_fps = 60; // assume 60 fps initially
 	
-	g_font.init("consola.ttf", 16); // fixed font for now
+	g_font.init("consola.ttf"); // fixed font for now
 	
 	shad_tex.init();
-	shad_clip_col.init();
-	vbo_clip_col.init();
+	shad_px_col.init();
+	vbo_px_col.init();
 	
 }
 
@@ -491,9 +546,28 @@ static void frame () {
 	shad_tex.bind();
 	shad_tex.bind_texture(g_font.tex);
 	
-	g_font.draw_text_lines(shad_tex, u8"Hello World1、「ヘッロワルド」。",	v2(2, -3 +17*1), 1);
-	g_font.draw_text_lines(shad_tex, u8"Hello World2、_「ヘッロワルド」。",	v2(2, -3 +17*2), 1);
-	g_font.draw_text_lines(shad_tex, u8"Hello World3、「ヘッロワルド」__。",	v2(2, -3 +17*3), 1);
+	f32 y = -3 +(font::sz+1)*1;
+	
+	g_font.draw_text_line(shad_tex, buffer, v2(2, y), 1, cursor.offs);
+	y += (font::sz+1);
+	
+	
+	{
+		shad_px_col.bind();
+		shad_px_col.wnd_dim.set( wnd_dim );
+		
+		v4 col = v4(1,1,1,1);
+		
+		std::initializer_list<Vertex> data = {
+			{ v2(50, 50), col },
+			{ v2(200, 50), col },
+		};
+		
+		vbo_px_col.upload(data);
+		vbo_px_col.bind(shad_px_col);
+		
+		glDrawArrays(GL_LINES, 0, data.size());
+	}
 	
 }
 
@@ -526,12 +600,10 @@ int main (int argc, char** argv) {
 		t = (f64)(prev_frame_end -initial_ts) / glfwGetTimerFrequency();
 		
 		scrollwheel_diff = 0;
-		buttons_reset_toggle_count();
 		
 		glfwPollEvents();
 		
 		if (glfwWindowShouldClose(wnd)) break;
-		if (button_went_down(B_F11)) toggle_fullscreen();
 		
 		{
 			glfwGetFramebufferSize(wnd, &wnd_dim.x, &wnd_dim.y);
@@ -544,7 +616,7 @@ int main (int argc, char** argv) {
 		{
 			dv2 pos;
 			glfwGetCursorPos(wnd, &pos.x, &pos.y);
-			cursor_pos = iv2( (s32)floor(pos.x), (s32)floor(pos.y) );
+			mcursor_pos = iv2( (s32)floor(pos.x), (s32)floor(pos.y) );
 		}
 		
 		frame();

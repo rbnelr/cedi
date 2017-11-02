@@ -81,13 +81,16 @@ namespace font {
 	
 	static std::initializer_list<utf32> ger = { U'ß',U'Ä',U'Ö',U'Ü',U'ä',U'ö',U'ü' };
 	static std::initializer_list<utf32> jp_sym = { U'　',U'、',U'。',U'”',U'「',U'」' };
-		
+	
+	f32 sz = 0 ? 16 : 24;
+	f32 jpsz = 0 ? 24 : 32;
+	
 	static std::initializer_list<Glyph_Range> ranges = { // Could improve the packing by putting 
-		{ nullptr,		16, U'\xfffd', U'\xfffd' },
-		{ nullptr,		16, U' ', U'~' },
-		{ nullptr,		16, ger },
-		{ "meiryo.ttc",	24, U'\x3040', U'\x30ff' }, // hiragana +katakana +some jp puncuation
-		{ "meiryo.ttc",	24, jp_sym },
+		{ nullptr,		sz,		U'\xfffd', U'\xfffd' },
+		{ nullptr,		sz,		U' ', U'~' },
+		{ nullptr,		sz,		ger },
+		{ "meiryo.ttc",	jpsz,	U'\x3040', U'\x30ff' }, // hiragana +katakana +some jp puncuation
+		{ "meiryo.ttc",	jpsz,	jp_sym },
 	};
 	
 	#undef R
@@ -230,8 +233,7 @@ namespace font {
 			return ret;
 		}
 		
-		//void draw_text_lines (Basic_Shader cr shad, array< array<utf8>* > text_lines, v2 pos_screen, v4 col) {
-		void draw_text_lines (Basic_Shader cr shad, std::basic_string<utf8> cr text_, v2 pos_screen, v4 col) {
+		void draw_text_line (Basic_Shader cr shad, std::basic_string<utf32> cr line, v2 pos_screen, v4 col, u32 highl_char=-1) {
 			
 			v2 pos = v2(pos_screen.x, pos_screen.y -wnd_dim.y);
 			
@@ -244,9 +246,7 @@ namespace font {
 				v2(0,1),
 			};
 			
-			auto line = utf8_to_utf32(text_);
-			
-			#define SHOW_TEXTURE 0
+			#define SHOW_TEXTURE 1
 			
 			std::vector<VBO_Pos_Tex_Col::V> text_data;
 			text_data.reserve( 0*line.length() * 6
@@ -255,6 +255,7 @@ namespace font {
 					#endif
 					);
 			
+			u32 i=0;
 			for (utf32 c : line) {
 				
 				stbtt_aligned_quad quad;
@@ -266,8 +267,10 @@ namespace font {
 					text_data.push_back({
 						/*pos*/ lerp(v2(quad.x0,-quad.y0), v2(quad.x1,-quad.y1), quad_vert) / (v2)wnd_dim * 2 -1,
 						/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
-						/*col*/ col });
+						/*col*/ highl_char == i ? v4(1,0.1f,0.1f,1) : col });
 				}
+				
+				++i;
 			}
 			
 			#if SHOW_TEXTURE
@@ -285,6 +288,11 @@ namespace font {
 			vbo.bind(shad);
 			
 			glDrawArrays(GL_TRIANGLES, 0, text_data.size());
+			
+		}
+		void draw_text_line_utf8 (Basic_Shader cr shad, std::basic_string<utf8> cr text_, v2 pos_screen, v4 col) {
+			auto line = utf8_to_utf32(text_);
+			draw_text_line(shad, line, pos_screen, col);
 		}
 	};
 	
