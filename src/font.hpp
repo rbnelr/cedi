@@ -51,7 +51,7 @@ namespace font {
 	
 	struct Font {
 		Texture					tex;
-		VBO_Pos_Tex_Col			vbo;
+		VBO_Text			vbo;
 		
 		u32						glyphs_count;
 		stbtt_packedchar*		glyphs_packed_chars;
@@ -174,7 +174,7 @@ namespace font {
 			return 0; // missing glyph
 		}
 		
-		f32 emit_glyph (std::vector<VBO_Pos_Tex_Col::V>* vbo_buf, f32 pos_x_px, f32 pos_y_px, utf32 c, v4 col) {
+		f32 emit_glyph (std::vector<VBO_Text::V>* vbo_buf, f32 pos_x_px, f32 pos_y_px, utf32 c, v4 col) {
 			
 			stbtt_aligned_quad quad;
 			
@@ -191,7 +191,7 @@ namespace font {
 			return pos_x_px;
 		};
 		
-		void draw_emitted_glyphs (Shader_Clip_Tex_Col cr shad, std::vector<VBO_Pos_Tex_Col::V>* vbo_buf) {
+		void draw_emitted_glyphs (Shader_Text cr shad, std::vector<VBO_Text::V>* vbo_buf) {
 			
 			if (1) { // show texture
 				v2 left_bottom =	v2(wnd_dim.x -(f32)tex.w, (f32)tex.h);

@@ -1,6 +1,4 @@
 
-#include "types.hpp"
-
 #define RZ_COMP_GCC				1
 #define RZ_COMP_LLVM			2
 #define RZ_COMP_MSVC			3
@@ -35,6 +33,12 @@
 	#define BUILTIN_F32_QNAN				__builtin_nanf("0")
 	#define BUILTIN_F64_QNAN				__builtin_nan("0")
 	#define DBGBREAK						__debugbreak()
+	
+	#define F32_INF							((float)(1e+300 * 1e+300))
+	#define F64_INF							(1e+300 * 1e+300)
+	#define F32_QNAN						__builtin_nanf("0")
+	#define F64_QNAN						__builtin_nan("0")
+	
 #elif RZ_COMP == RZ_COMP_LLVM
 	#define FORCEINLINE						__attribute__((always_inline)) inline
 	#define NOINLINE						__attribute__((noinline))
@@ -43,13 +47,19 @@
 	#define BUILTIN_F32_QNAN				__builtin_nan("0")
 	#define BUILTIN_F64_QNAN				__builtin_nan("0")
 	#define DBGBREAK						do { asm volatile ("int3"); } while(0)
-#elif RZ_COMP == RZ_COMP_GCC
-	#define FORCEINLINE						__attribute__((always_inline)) inline
-	#define NOINLINE						__attribute__((noinline))
+		
 	#define BUILTIN_F32_INF					(__builtin_inff())
 	#define BUILTIN_F64_INF					(__builtin_inf())
 	#define BUILTIN_F32_QNAN				__builtin_nan("0")
 	#define BUILTIN_F64_QNAN				__builtin_nan("0")
+	
+#elif RZ_COMP == RZ_COMP_GCC
+	#define FORCEINLINE						__attribute__((always_inline)) inline
+	#define NOINLINE						__attribute__((noinline))
+	#define F32_INF							(__builtin_inff())
+	#define F64_INF							(__builtin_inf())
+	#define F32_QNAN						__builtin_nan("0")
+	#define F64_QNAN						__builtin_nan("0")
 	
 	#if RZ_PLATF == RZ_PLATF_GENERIC_WIN
 		#define DBGBREAK					do { __debugbreak(); } while(0)
@@ -58,7 +68,15 @@
 			#define DBGBREAK				do { asm volatile ("bkpt #0"); } while(0)
 		#endif
 	#endif
+	
+	#define F32_INF							(__builtin_inff())
+	#define F64_INF							(__builtin_inf())
+	#define F32_QNAN						__builtin_nan("0")
+	#define F64_QNAN						__builtin_nan("0")
+	
 #endif
+
+#include "types.hpp"
 
 #if RZ_PLATF == RZ_PLATF_GENERIC_WIN
 	

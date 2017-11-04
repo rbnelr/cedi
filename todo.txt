@@ -35,6 +35,7 @@ DONE:
  cursor box around char fits perfectly and was really simple to implement :)
  
  added all colors as user options
+ added newline handling (\n \r and \r\n are all counted as one newline)
  
 TODO
 -FEATURES:
