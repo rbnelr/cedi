@@ -25,10 +25,21 @@ typedef fm4		m4;
 #include "util.hpp"
 
 struct Options {
-	bool	draw_whitespace =		true;
-	s32		tab_spaces =			4;
-	f32		min_cursor_w_px =		4;
-	f32		tex_buffer_margin =		4;
+	v3		col_background =				srgb(41,49,52);
+	v3		col_text =						1;
+	v3		col_draw_whitespace =			col_text * 0.1f;
+	v3		col_line_numbers =				col_text * 0.25f;
+	v3		col_line_numbers_bar =			col_text * 0.1f;
+	v3		col_cursor =					srgb(147,199,99);
+	
+	bool	draw_whitespace =				true;
+	
+	s32		tab_spaces =					4;
+	
+	f32		min_cursor_w_percent_of_char =	0 ? 0.25f : 1;
+	f32		min_cursor_w_px =				4;
+	
+	f32		tex_buffer_margin =				4;
 };
 
 static Options opt;
@@ -68,7 +79,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	std::vector<VBO_Pos_Tex_Col::V> vbo_char_vert_data;
 	
-	void _dbg_init_from_str (utf32 const* str) {
+	void _dbg_init_from_str (utf32 const* str, u32 len) {
 		
 		first_line = new Line;
 		first_line->prev = nullptr;
@@ -76,12 +87,16 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		Line* cur_line = first_line;
 		
 		auto* in = str;
-		while (*in != U'\0') {
+		while (in != (str +len)) {
 			utf32 c = *in++;
 			
 			cur_line->text.push_back( c );
 			
-			if (c == U'\n') {
+			if (c == U'\n' || c == U'\r') {
+				if ((*in == U'\n' || *in == U'\r') && *in != c) {
+					cur_line->text.push_back( *in++ );
+				}
+				
 				Line* next_line = new Line;
 				
 				cur_line->next = next_line;
@@ -107,8 +122,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		vbo_char_vert_data.clear();
 		
-		v4 text_col = 1;
-		
 		f32	pos_x_px;
 		f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin;
 		
@@ -117,19 +130,31 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		do {
 			pos_x_px = g_font.border_left +opt.tex_buffer_margin;
 			
-			auto emit_glyph = [&] (utf32 c, v4 col) {
-				pos_x_px = g_font.emit_glyph(&vbo_char_vert_data, pos_x_px,pos_y_px, c, col);
+			auto emit_glyph = [&] (utf32 c, v3 col) {
+				pos_x_px = g_font.emit_glyph(&vbo_char_vert_data, pos_x_px,pos_y_px, c, v4(col,1));
 			};
 			
 			{ // emit line numbers
-				emit_glyph(U'0' +(line_i / 10) % 10, text_col*v4(1,1,1, 0.25f));
-				emit_glyph(U'0' +(line_i /  1) % 10, text_col*v4(1,1,1, 0.25f));
-				emit_glyph(U'|', text_col*v4(1,1,1, 0.1f));
+				emit_glyph(U'0' +(line_i / 10) % 10, opt.col_line_numbers);
+				emit_glyph(U'0' +(line_i /  1) % 10, opt.col_line_numbers);
+				emit_glyph(U'|', opt.col_line_numbers_bar);
 			}
 			
 			cur_line->chars_pos_px.clear();
 			
 			u32 char_i=0;
+			
+			auto draw_escaped_char = [&] (utf32 c) {
+				if (opt.draw_whitespace) {
+					auto tmp = pos_x_px;
+					emit_glyph(U'\\', opt.col_draw_whitespace);
+					pos_x_px = lerp(tmp, pos_x_px, 0.6f); // squash \ and c closer together to make it seem like 1 glyph
+					
+					emit_glyph(c, opt.col_draw_whitespace);
+					++char_i;
+				}
+			};
+			
 			for (utf32 c : cur_line->text) {
 				
 				cur_line->chars_pos_px.push_back( v2(pos_x_px, pos_y_px) );
@@ -141,10 +166,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 						for (s32 j=0; j<spaces_needed; ++j) {
 							auto c = U' ';
 							if (opt.draw_whitespace) {
-								c = j<spaces_needed-1 ? U'-' : U'>';
+								c = j<spaces_needed-1 ? U'—' : U'→';
 							}
 							
-							emit_glyph(c, text_col*v4(1,1,1, 0.1f));
+							emit_glyph(c, opt.col_draw_whitespace);
 							
 							++char_i;
 						}
@@ -152,19 +177,27 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 					} break;
 					
 					case U'\n': {
+						draw_escaped_char(U'n');
+					} break;
+					case U'\r': {
+						draw_escaped_char(U'r');
+					} break;
+					case U'\0': {
+						draw_escaped_char(U'0');
+					} break;
+					
+					case U' ': {
 						if (opt.draw_whitespace) {
-							// draw backslash and t at the same position to create a '\n' glypth
-							auto tmp = pos_x_px;
-							emit_glyph(U'\\', text_col*v4(1,1,1, 0.1f));
-							pos_x_px = tmp;
-							emit_glyph(U'n', text_col*v4(1,1,1, 0.1f));
+							emit_glyph(U'·', opt.col_draw_whitespace);
+						} else {
+							emit_glyph(c, opt.col_text);
 						}
 						
 						++char_i;
 					} break;
 					
 					default: {
-						emit_glyph(c, text_col);
+						emit_glyph(c, opt.col_text);
 						++char_i;
 					} break;
 				}
@@ -187,6 +220,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			w = cursor.lp->chars_pos_px[ cursor.c +1 ].x -pos.x; // could be imaginary last character
 		}
 		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+		w *= opt.min_cursor_w_percent_of_char;
 		w = max(w, opt.min_cursor_w_px);
 		
 		cursor_rect = {	v2(pos.x -g_font.border_left, pos.y -g_font.line_height +g_font.descent_plus_gap),
@@ -270,11 +304,11 @@ static void move_cursor_down () {	g_buf.move_cursor_down();	}
 	U"}\n"
 #define C_PROG \
 	U"\n" \
-	U"#include <stdio.h>\n" \
+	U"#include <stdio.h>\r\n" \
 	U"int main (int argc, char** argv) {\n" \
-	U"	printf(\"Hello World!\\n\");\n" \
-	U"	return 0;\n" \
-	U"}\n"
+	U"\0	printf(\"Hello World!\\n\");\r\n" \
+	U" 	return 0;\n" \
+	U"}\r"
 #define TEST2 U"static void insert_char (utf32 c) {\n"
 
 static constexpr cstr		APP_NAME =		u8"cedi";
@@ -315,7 +349,11 @@ static void init  () {
 	shad_px_col.init();
 	vbo_px_col.init();
 	
-	g_buf._dbg_init_from_str( C_PROG );
+	{
+		utf32 str[] = C_PROG;
+		g_buf._dbg_init_from_str( str, arrlen(str) );
+	}
+	
 	g_buf.cursor.l = 3;
 	g_buf.cursor.lp = g_buf.first_line->next->next->next;
 }
@@ -331,15 +369,35 @@ static void frame () {
 		glfwSetWindowTitle(wnd, wnd_title.c_str());
 	}
 	
-	v4 background_col = v4( srgb(41,49,52), 1 );
-	
 	glViewport(0, 0, wnd_dim.x, wnd_dim.y);
 	
-	glClearColor(background_col.x, background_col.y, background_col.z, 1.0f);
+	glClearColor(opt.col_background.x, opt.col_background.y, opt.col_background.z, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	
 	{
 		g_buf.gen_chars_pos_and_vbo_data();
+		
+		// draw cursor line
+		shad_px_col.bind();
+		shad_px_col.wnd_dim.set( (v2)wnd_dim );
+		
+		{
+			auto& r = g_buf.cursor_rect;
+			
+			std::initializer_list<Vertex> data = {
+				{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor, 1) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 1) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 1) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 1) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 1) },
+				{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor, 1) },
+			};
+			
+			vbo_px_col.upload(data);
+			vbo_px_col.bind(shad_px_col);
+			
+			glDrawArrays(GL_TRIANGLES, 0, data.size());
+		}
 		
 		// draw buffer text
 		shad_tex.bind();
@@ -348,29 +406,6 @@ static void frame () {
 		
 		g_font.draw_emitted_glyphs(shad_tex, &g_buf.vbo_char_vert_data);
 		
-		// draw cursor line
-		shad_px_col.bind();
-		shad_px_col.wnd_dim.set( (v2)wnd_dim );
-		
-		{
-			v4 col = v4(srgb(147,199,99), 0.5f);
-			
-			auto& r = g_buf.cursor_rect;
-			
-			std::initializer_list<Vertex> data = {
-				{ r.pos +r.dim * v2(1,0), col },
-				{ r.pos +r.dim * v2(1,1), col },
-				{ r.pos +r.dim * v2(0,0), col },
-				{ r.pos +r.dim * v2(0,0), col },
-				{ r.pos +r.dim * v2(1,1), col },
-				{ r.pos +r.dim * v2(0,1), col },
-			};
-			
-			vbo_px_col.upload(data);
-			vbo_px_col.bind(shad_px_col);
-			
-			glDrawArrays(GL_TRIANGLES, 0, data.size());
-		}
 	}
 	
 }

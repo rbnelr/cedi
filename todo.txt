@@ -34,6 +34,8 @@ DONE:
  
  cursor box around char fits perfectly and was really simple to implement :)
  
+ added all colors as user options
+ 
 TODO
 -FEATURES:
  

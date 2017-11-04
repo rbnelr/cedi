@@ -21,6 +21,7 @@ namespace font {
 	
 	static std::initializer_list<utf32> ger = { U'ß',U'Ä',U'Ö',U'Ü',U'ä',U'ö',U'ü' };
 	static std::initializer_list<utf32> jp_sym = { U'　',U'、',U'。',U'”',U'「',U'」' };
+	static std::initializer_list<utf32> ws_visual = { U'·',U'—',U'→' };
 	
 	f32 sz = 24; // 14 16 24
 	f32 jpsz = floor(sz * 1.75f);
@@ -28,6 +29,7 @@ namespace font {
 	static std::initializer_list<Glyph_Range> ranges = {
 		{ nullptr,		sz,		U'\xfffd', U'\xfffd' }, // missing glyph placeholder
 		//{ "arial.ttf",	sz,		U'\0', U'\x1f' }, // control characters // does not work for some reason, even though FontForge shows that these glyphs exist at least in arial.ttf
+		{ nullptr,		sz,		ws_visual }, // whitespace visualizers
 		{ nullptr,		sz,		U' ', U'~' },
 		//{ nullptr,		sz,		U'\x0', U'\x7f' }, // all ascii
 		{ nullptr,		sz,		ger },
