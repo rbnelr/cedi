@@ -81,11 +81,11 @@ V3 normalize (V3 v) {
 }
 
 #if 1
-static constexpr V3 MIN (V3 l, V3 r) { return V3( MIN(l.x, r.x), MIN(l.y, r.y), MIN(l.z, r.z) ); }
-static constexpr V3 MAX (V3 l, V3 r) { return V3( MAX(l.x, r.x), MAX(l.y, r.y), MAX(l.z, r.z) ); }
+static constexpr V3 min (V3 l, V3 r) { return V3( min(l.x, r.x), min(l.y, r.y), min(l.z, r.z) ); }
+static constexpr V3 max (V3 l, V3 r) { return V3( max(l.x, r.x), max(l.y, r.y), max(l.z, r.z) ); }
 #endif
 
-static constexpr V3 clamp (V3 val, V3 l, V3 h) { return MIN( MAX(val,l), h ); }
+static constexpr V3 clamp (V3 val, V3 l, V3 h) { return min( max(val,l), h ); }
 static V3 mymod (V3 val, V3 range) {
 	return V3(	mymod(val.x, range.x),
 				mymod(val.y, range.y),

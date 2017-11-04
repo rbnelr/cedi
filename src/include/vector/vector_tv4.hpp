@@ -78,11 +78,11 @@ V4 normalize (V4 v) {
 }
 
 #if 1
-static constexpr V4 MIN (V4 l, V4 r) { return V4( MIN(l.x, r.x), MIN(l.y, r.y), MIN(l.z, r.z), MIN(l.w, r.w) ); }
-static constexpr V4 MAX (V4 l, V4 r) { return V4( MAX(l.x, r.x), MAX(l.y, r.y), MAX(l.z, r.z), MAX(l.w, r.w) ); }
+static constexpr V4 min (V4 l, V4 r) { return V4( min(l.x, r.x), min(l.y, r.y), min(l.z, r.z), min(l.w, r.w) ); }
+static constexpr V4 max (V4 l, V4 r) { return V4( max(l.x, r.x), max(l.y, r.y), max(l.z, r.z), max(l.w, r.w) ); }
 #endif
 
-static constexpr V4 clamp (V4 val, V4 l, V4 h) { return MIN( MAX(val,l), h ); }
+static constexpr V4 clamp (V4 val, V4 l, V4 h) { return min( max(val,l), h ); }
 static V4 mymod (V4 val, V4 range) {
 	return V4(	mymod(val.x, range.x),
 				mymod(val.y, range.y),

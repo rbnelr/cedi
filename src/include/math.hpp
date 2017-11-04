@@ -27,13 +27,13 @@ static constexpr f64 to_deg (f64 ang) {	return ang * RAD_TO_DEGd; }
 #define RAD_90	deg(90)
 
 template <typename T> static constexpr
-T MIN (T l, T r) { return l <= r ? l : r; }
+T min (T l, T r) { return l <= r ? l : r; }
 template <typename T> static constexpr
-T MAX (T l, T r) { return l >= r ? l : r; }
+T max (T l, T r) { return l >= r ? l : r; }
 
-static constexpr s32 clamp (s32 val, s32 l, s32 h) {	return MIN( MAX(val,l), h ); }
-static constexpr f32 clamp (f32 val, f32 l, f32 h) {	return MIN( MAX(val,l), h ); }
-static constexpr f64 clamp (f64 val, f64 l, f64 h) {	return MIN( MAX(val,l), h ); }
+static constexpr s32 clamp (s32 val, s32 l, s32 h) {	return min( max(val,l), h ); }
+static constexpr f32 clamp (f32 val, f32 l, f32 h) {	return min( max(val,l), h ); }
+static constexpr f64 clamp (f64 val, f64 l, f64 h) {	return min( max(val,l), h ); }
 
 static constexpr f32 lerp (f32 a, f32 b, f32 t) {		return a*(1.0f -t) +b*t; }
 //static constexpr f32 mapclamp (f32 x, f32 a, f32 b) {		return clamp((x -a)/(b -a), 0.0f,1.0f); }

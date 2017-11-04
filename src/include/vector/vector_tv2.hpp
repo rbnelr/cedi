@@ -83,11 +83,11 @@ union V2 {
 	}
 	
 	#if 1
-	static constexpr V2 MIN (V2 l, V2 r) { return V2( MIN(l.x, r.x), MIN(l.y, r.y) ); }
-	static constexpr V2 MAX (V2 l, V2 r) { return V2( MAX(l.x, r.x), MAX(l.y, r.y) ); }
+	static constexpr V2 min (V2 l, V2 r) { return V2( min(l.x, r.x), min(l.y, r.y) ); }
+	static constexpr V2 max (V2 l, V2 r) { return V2( max(l.x, r.x), max(l.y, r.y) ); }
 	#endif
 	
-	static constexpr V2 clamp (V2 val, V2 l, V2 h) { return MIN( MAX(val,l), h ); }
+	static constexpr V2 clamp (V2 val, V2 l, V2 h) { return min( max(val,l), h ); }
 	static V2 mymod (V2 val, V2 range) {
 		return V2(	mymod(val.x, range.x),
 					mymod(val.y, range.y) );

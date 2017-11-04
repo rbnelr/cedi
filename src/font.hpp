@@ -4,110 +4,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-struct File_Data {
-	byte*	data;
-	u64		size;
-	
-	void free () { ::free(data); }
-};
-static File_Data load_file (cstr filename) {
-	auto f = fopen(filename, "rb");
-	if (!f) {
-		dbg_assert(false, "fopen: file '%s' could not be opened", filename);
-		return {}; // fail
-	}
-	defer { fclose(f); };
-	
-	fseek(f, 0, SEEK_END);
-	u64 file_size = ftell(f); // only 32 support for now
-	rewind(f);
-	
-	byte* data = (byte*)malloc(file_size);
-	
-	auto ret = fread(data, 1,file_size, f);
-	dbg_assert(ret == file_size);
-	file_size = ret;
-	
-	return {data,file_size};
-}
-
-struct Texture {
-	GLuint	gl;
-	u8*		data;
-	u32		w;
-	u32		h;
-	
-	void alloc (u32 w, u32 h) {
-		glGenTextures(1, &gl);
-		this->w = w;
-		this->h = h;
-		data = (u8*)::malloc(w*h*sizeof(u8));
-	}
-	
-	u8* operator[] (u32 row) { return &data[row*w]; }
-	
-	void inplace_vertical_flip () {
-		u8* row_a = (*this)[0];
-		u8* row_b = (*this)[h -1];
-		for (u32 y=0; y<(h/2); ++y) {
-			dbg_assert(row_a < row_b);
-			for (u32 x=0; x<w; ++x) {
-				u8 tmp = row_a[x];
-				row_a[x] = row_b[x];
-				row_b[x] = tmp;
-			}
-			row_a += w;
-			row_b -= w;
-		}
-	}
-};
-
-static std::basic_string<utf32> utf8_to_utf32 (std::basic_string<utf8> cr s) {
-	utf8 const* cur = &s[0];
-	
-	std::basic_string<utf32> ret;
-	ret.reserve( s.length() ); // can never be longer than input
-	
-	for (;;) {
-		if ((*cur & 0b10000000) == 0b00000000) {
-			char c = *cur++;
-			if (c == '\0') break;
-			ret.push_back( c );
-			continue;
-		}
-		if ((*cur & 0b11100000) == 0b11000000) {
-			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-			utf8 a = *cur++ & 0b00011111;
-			utf8 b = *cur++ & 0b00111111;
-			ret.push_back( a<<6|b );
-			continue;
-		}
-		if ((*cur & 0b11110000) == 0b11100000) {
-			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-			dbg_assert((cur[2] & 0b11000000) == 0b10000000);
-			utf8 a = *cur++ & 0b00001111;
-			utf8 b = *cur++ & 0b00111111;
-			utf8 c = *cur++ & 0b00111111;
-			ret.push_back( a<<12|b<<6|c );
-			continue;
-		}
-		if ((*cur & 0b11111000) == 0b11110000) {
-			dbg_assert((cur[1] & 0b11000000) == 0b10000000);
-			dbg_assert((cur[2] & 0b11000000) == 0b10000000);
-			dbg_assert((cur[3] & 0b11000000) == 0b10000000);
-			utf8 a = *cur++ & 0b00000111;
-			utf8 b = *cur++ & 0b00111111;
-			utf8 c = *cur++ & 0b00111111;
-			utf8 d = *cur++ & 0b00111111;
-			ret.push_back( a<<18|b<<12|c<<6|d );
-			continue;
-		}
-		dbg_assert(false);
-	}
-	
-	return ret;
-}
-
 namespace font {
 	
 	struct Glyph_Range {
@@ -123,15 +19,13 @@ namespace font {
 		}
 	};
 	
-	#define R(first, last) (first), (last) +1 -(first)
-	
 	static std::initializer_list<utf32> ger = { U'ß',U'Ä',U'Ö',U'Ü',U'ä',U'ö',U'ü' };
 	static std::initializer_list<utf32> jp_sym = { U'　',U'、',U'。',U'”',U'「',U'」' };
 	
 	f32 sz = 24; // 14 16 24
 	f32 jpsz = floor(sz * 1.75f);
 	
-	static std::initializer_list<Glyph_Range> ranges = { // Could improve the packing by putting 
+	static std::initializer_list<Glyph_Range> ranges = {
 		{ nullptr,		sz,		U'\xfffd', U'\xfffd' }, // missing glyph placeholder
 		//{ "arial.ttf",	sz,		U'\0', U'\x1f' }, // control characters // does not work for some reason, even though FontForge shows that these glyphs exist at least in arial.ttf
 		{ nullptr,		sz,		U' ', U'~' },
@@ -141,10 +35,17 @@ namespace font {
 		{ "meiryo.ttc",	jpsz,	jp_sym },
 	};
 	
-	#undef R
-	
 	static u32 texw = 512; // hopefully large enough for now, if not 
 	static u32 texh = 512;
+	
+	static constexpr v2 QUAD_VERTS[] = {
+		v2(1,0), // MSVC claims this is not a constexpr when i put this arr into the Font struct, but it worked before ???
+		v2(1,1),
+		v2(0,0),
+		v2(0,0),
+		v2(1,1),
+		v2(0,1),
+	};
 	
 	struct Font {
 		Texture					tex;
@@ -152,6 +53,11 @@ namespace font {
 		
 		u32						glyphs_count;
 		stbtt_packedchar*		glyphs_packed_chars;
+		
+		f32 border_left;
+		f32 border_top;
+		
+		f32 line_height;
 		
 		bool init (cstr latin_filename) {
 			
@@ -161,8 +67,8 @@ namespace font {
 			cstr fonts_folder = "c:/windows/fonts/";
 			
 			struct Loaded_Font_File {
-				cstr		filename;
-				File_Data	f;
+				cstr			filename;
+				File_Data		f;
 			};
 			
 			std::vector<Loaded_Font_File> loaded_files;
@@ -194,6 +100,31 @@ namespace font {
 				if (!font_file) {
 					loaded_files.push_back({ filename, load_file(filepath.c_str()) });
 					font_file = &loaded_files.back();
+					
+					if (cur == 0) {
+						stbtt_fontinfo info;
+						dbg_assert( stbtt_InitFont(&info, font_file->f.data, 0) );
+						
+						f32 scale = stbtt_ScaleForPixelHeight(&info, sz);
+						
+						s32 ascent, decent, line_gap;
+						stbtt_GetFontVMetrics(&info, &ascent, &decent, &line_gap);
+						
+						s32 x0, x1, y0, y1;
+						stbtt_GetFontBoundingBox(&info, &x0, &y0, &x1, &y1);
+						
+						//border_left = -x0*scale;
+						border_left = 5;
+						
+						line_height = ceil(ascent*scale -decent*scale +line_gap*scale); // ceil, so that lines are always seperated by exactly n pixels (else lines would get rounded to a y pos, which would result in uneven spacing)
+						
+						f32 ceiled_line_gap = line_height -(ascent*scale -decent*scale);
+						
+						border_top = 5 +ascent*scale +ceiled_line_gap/2;
+						
+						printf(">>> %f %f %f\n", border_left, border_top, line_height);
+						
+					}
 				}
 				
 				r.pr.chardata_for_range = &glyphs_packed_chars[cur];
@@ -219,7 +150,7 @@ namespace font {
 			return true;
 		}
 		
-		int search_glyph (utf32 c) {
+		static int search_glyph (utf32 c) {
 			int cur = 0;
 			for (auto r : ranges) {
 				if (r.pr.array_of_unicode_codepoints) {
@@ -238,73 +169,52 @@ namespace font {
 			return 0; // missing glyph
 		}
 		
-		struct Line {
-			v2 a;
-			v2 b;
-		} draw_buffer (Basic_Shader cr shad, std::basic_string<utf32> cr buffer, u32 cursor_offs) {
+		f32 emit_glyph (std::vector<VBO_Pos_Tex_Col::V>* vbo_buf, f32 pos_x_px, f32 pos_y_px, utf32 c, v4 col) {
 			
-			constexpr v2 QUAD_VERTS[] = {
-				v2(1,0),
-				v2(1,1),
-				v2(0,0),
-				v2(0,0),
-				v2(1,1),
-				v2(0,1),
-			};
+			stbtt_aligned_quad quad;
 			
-			#define SHOW_TEXTURE 0
+			stbtt_GetPackedQuad(glyphs_packed_chars, (s32)tex.w,(s32)tex.h, search_glyph(c),
+					&pos_x_px,&pos_y_px, &quad, 1);
 			
-			std::vector<VBO_Pos_Tex_Col::V> text_data;
-			text_data.reserve( buffer.length() * 6
-					#if SHOW_TEXTURE
-					+6
-					#endif
-					); // this might be slightly overallocated because there can be characters that are not drawn (newline for ex.)
+			for (v2 quad_vert : QUAD_VERTS) {
+				vbo_buf->push_back({
+					/*pos*/ lerp(v2(quad.x0,quad.y0), v2(quad.x1,quad.y1), quad_vert),
+					/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
+				/*col*/ col });
+			}
 			
-			f32 border_left =	2;
-			f32 border_top =	0;
+			return pos_x_px;
+		};
+		
+		void draw_emitted_glyphs (Shader_Clip_Tex_Col cr shad, std::vector<VBO_Pos_Tex_Col::V>* vbo_buf) {
 			
-			v2 pos_px = v2(border_left, border_top +sz);
-			
-			v4 base_col = 1;
-			
-			v2 cursor_pos_px;
-			
-			u32 line_i=0;
-			u32 line_char_i=0;
-			
-			for (u32 buf_char_i=0; buf_char_i<(buffer.size()+1); ++buf_char_i) {
-				utf32 c = buffer[buf_char_i];
-				
-				auto emit_glyph = [&] (utf32 c, v4 col) {
-					
-					stbtt_aligned_quad quad;
-					
-					stbtt_GetPackedQuad(glyphs_packed_chars, (s32)tex.w,(s32)tex.h, search_glyph(c),
-							&pos_px.x,&pos_px.y, &quad, 1);
-					
-					for (v2 quad_vert : QUAD_VERTS) {
-						text_data.push_back({
-							/*pos*/ lerp(v2(quad.x0,quad.y0), v2(quad.x1,quad.y1), quad_vert),
-							/*uv*/ lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), quad_vert),
-							/*col*/ col });
-					}
-					
-				};
-				
-				if (line_char_i == 0) {
-					emit_glyph(U'0' +(line_i / 10) % 10, base_col*v4(1,1,1, 0.25f));
-					emit_glyph(U'0' +(line_i /  1) % 10, base_col*v4(1,1,1, 0.25f));
-					emit_glyph(U'|', base_col*v4(1,1,1, 0.1f));
+			if (1) { // show texture
+				v2 left_bottom =	v2(wnd_dim.x -(f32)tex.w, (f32)tex.h);
+				v2 right_top =		v2(wnd_dim.x, 0);
+				for (v2 quad_vert : QUAD_VERTS) {
+					vbo_buf->push_back({
+						/*pos*/ lerp(left_bottom, right_top, quad_vert),
+						/*uv*/ quad_vert,
+						/*col*/ 1 });
 				}
-				
-				if (buf_char_i == cursor_offs) {
-					cursor_pos_px = pos_px;
-				}
+			}
+			
+			vbo.upload(*vbo_buf);
+			vbo.bind(shad);
+			
+			glDrawArrays(GL_TRIANGLES, 0, vbo_buf->size());
+		};
+		
+		#if 0
+		void draw_line (Basic_Shader cr shad, std::basic_string<utf32> cr text) {
+			
+			u32 char_i=0;
+			
+			for (utf32 c : text) {
 				
 				switch (c) {
 					case U'\t': {
-						s32 spaces_needed = tab_spaces -(line_char_i % tab_spaces);
+						s32 spaces_needed = tab_spaces -(char_i % tab_spaces);
 						
 						for (s32 j=0; j<spaces_needed; ++j) {
 							auto c = U' ';
@@ -314,7 +224,7 @@ namespace font {
 							
 							emit_glyph(c, base_col*v4(1,1,1, 0.1f));
 							
-							++line_char_i;
+							++char_i;
 						}
 						
 					} break;
@@ -329,49 +239,20 @@ namespace font {
 						}
 						
 						pos_px.x = border_left;
-						pos_px.y += sz;
+						pos_px.y += line_height;
 						
-						line_char_i = 0;
-						++line_i;
-					} break;
-					
-					case U'\0': { // this null terminator is just so we print the line numbers on a empty last line in the file ("line1\n" -> line2 also has line numbers)
-						// do nothing
+						++char_i;
+						
 					} break;
 					
 					default: {
 						emit_glyph(c, base_col);
-						++line_char_i;
+						++char_i;
 					} break;
 				}
 			}
-			
-			if (buffer.size() == cursor_offs) {
-				cursor_pos_px = pos_px;
-			}
-			
-			#if SHOW_TEXTURE
-			{
-				v2 left_bottom =	v2(wnd_dim.x -(f32)tex.w, (f32)tex.h);
-				v2 right_top =		v2(wnd_dim.x, 0);
-				for (v2 quad_vert : QUAD_VERTS) {
-					text_data.push_back({
-						/*pos*/ lerp(left_bottom, right_top, quad_vert),
-						/*uv*/ quad_vert,
-						/*col*/ 1 });
-				}
-			}
-			#endif
-			
-			#undef SHOW_TEXTURE
-			
-			vbo.upload(text_data);
-			vbo.bind(shad);
-			
-			glDrawArrays(GL_TRIANGLES, 0, text_data.size());
-			
-			return { cursor_pos_px, cursor_pos_px -v2(0, sz) };
 		}
+		#endif
 	};
 	
 }

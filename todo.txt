@@ -24,8 +24,15 @@ DONE:
 // git commit
  basic vertical cursor movement (same line character index for now (basicly assuming monospace)) (ARROW_UP, ARROW_DOWN)
  
+#2017.11.02 Fr abend
+ rewrite internal text representation as linked list of lines with std::vector for the line character data
+ -> this should allow all editing in O(1) time scaling to line count (but still O(n) to line length, but those tend to be short)
+ -> rewrote drawing code as draw_line
+ 
 TODO
 -FEATURES:
+ 
+ -> rewrote again
  
  shift select
  -> highlight selection
