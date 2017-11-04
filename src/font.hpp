@@ -55,7 +55,9 @@ namespace font {
 		stbtt_packedchar*		glyphs_packed_chars;
 		
 		f32 border_left;
-		f32 border_top;
+		
+		f32 ascent_plus_gap;
+		f32 descent_plus_gap;
 		
 		f32 line_height;
 		
@@ -107,22 +109,23 @@ namespace font {
 						
 						f32 scale = stbtt_ScaleForPixelHeight(&info, sz);
 						
-						s32 ascent, decent, line_gap;
-						stbtt_GetFontVMetrics(&info, &ascent, &decent, &line_gap);
+						s32 ascent, descent, line_gap;
+						stbtt_GetFontVMetrics(&info, &ascent, &descent, &line_gap);
 						
 						s32 x0, x1, y0, y1;
 						stbtt_GetFontBoundingBox(&info, &x0, &y0, &x1, &y1);
 						
 						//border_left = -x0*scale;
-						border_left = 5;
+						border_left = 0;
 						
-						line_height = ceil(ascent*scale -decent*scale +line_gap*scale); // ceil, so that lines are always seperated by exactly n pixels (else lines would get rounded to a y pos, which would result in uneven spacing)
+						line_height = ceil(ascent*scale -descent*scale +line_gap*scale); // ceil, so that lines are always seperated by exactly n pixels (else lines would get rounded to a y pos, which would result in uneven spacing)
 						
-						f32 ceiled_line_gap = line_height -(ascent*scale -decent*scale);
+						f32 ceiled_line_gap = line_height -(ascent*scale -descent*scale);
 						
-						border_top = 5 +ascent*scale +ceiled_line_gap/2;
+						ascent_plus_gap = +ascent*scale +ceiled_line_gap/2;
+						descent_plus_gap = -descent*scale +ceiled_line_gap/2;
 						
-						printf(">>> %f %f %f\n", border_left, border_top, line_height);
+						printf(">>> %f %f %f %f\n", border_left, ascent_plus_gap, descent_plus_gap, line_height);
 						
 					}
 				}

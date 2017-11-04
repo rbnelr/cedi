@@ -25,8 +25,10 @@ typedef fm4		m4;
 #include "util.hpp"
 
 struct Options {
-	bool	draw_whitespace =	true;
-	s32		tab_spaces =		4;
+	bool	draw_whitespace =		true;
+	s32		tab_spaces =			4;
+	f32		min_cursor_w_px =		4;
+	f32		tex_buffer_margin =		4;
 };
 
 static Options opt;
@@ -52,11 +54,13 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	Line*	first_line;
 	
 	struct Cursor {
+		Line*	lp; // line the cursor is in (use this for logic)
 		s32		l; // mainly use this var for debggung and diplaying to the user
 		
 		s32		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
 		
-		Line*	lp; // line the cursor is in (use this for logic)
+		//bool	is_horiz_sticking;
+		//f32		stick_c;
 	};
 	
 	Cursor	cursor;
@@ -92,11 +96,12 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cursor.lp = first_line;
 	}
 	
-	struct _Cursor_Line {
-		v2 a, b;
+	struct _Cursor_Rect {
+		v2 pos;
+		v2 dim;
 	};
 	
-	_Cursor_Line cursor_line;
+	_Cursor_Rect cursor_rect;
 	
 	void gen_chars_pos_and_vbo_data () {
 		
@@ -105,12 +110,12 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		v4 text_col = 1;
 		
 		f32	pos_x_px;
-		f32	pos_y_px = g_font.border_top;
+		f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin;
 		
 		auto* cur_line = first_line;
 		u32	line_i=0;
 		do {
-			pos_x_px = g_font.border_left;
+			pos_x_px = g_font.border_left +opt.tex_buffer_margin;
 			
 			auto emit_glyph = [&] (utf32 c, v4 col) {
 				pos_x_px = g_font.emit_glyph(&vbo_char_vert_data, pos_x_px,pos_y_px, c, col);
@@ -165,7 +170,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				}
 			}
 			
-			cur_line->chars_pos_px.push_back( v2(pos_x_px, pos_y_px) ); // push char pos for imaginary last character
+			cur_line->chars_pos_px.push_back( v2(pos_x_px, pos_y_px) ); // push char pos for imaginary last character, to be able to determine width of last char on line
 			
 			//
 			cur_line = cur_line->next;
@@ -177,10 +182,18 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		v2 pos = cursor.lp->chars_pos_px[ cursor.c ];
 		
-		cursor_line = { pos, v2(pos.x, pos.y -g_font.line_height) };
+		f32 w = 0;
+		if (cursor.c < (cursor.lp->chars_pos_px.size() -1)) {
+			w = cursor.lp->chars_pos_px[ cursor.c +1 ].x -pos.x; // could be imaginary last character
+		}
+		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+		w = max(w, opt.min_cursor_w_px);
+		
+		cursor_rect = {	v2(pos.x -g_font.border_left, pos.y -g_font.line_height +g_font.descent_plus_gap),
+						v2(w, g_font.line_height) };
 	}
 	
-	s32 max_cursor_pos_on_line (Line const* l) {
+	static s32 max_cursor_pos_on_line (Line const* l) {
 		// on each line except the last there always has to be at least a newline char
 		// on last line there is no newline char -> we can place the cursor on the imaginary last character
 		s32 ret = l->text.size();
@@ -214,6 +227,13 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 	}
+	
+	//static s32 nearest_char_to_cur_char_x (Line* dst, Line*) {
+	//	
+	//}
+	//cursor.c = nearest_char_to_cur_char_x(cursor.lp->prev, cursor.lp, cursor.c);
+	//cursor.lp = cursor.lp->prev;
+	
 	void move_cursor_up () {
 		if (cursor.lp->prev) {
 			--cursor.l;
@@ -333,18 +353,17 @@ static void frame () {
 		shad_px_col.wnd_dim.set( (v2)wnd_dim );
 		
 		{
-			v4 col = v4(srgb(147,199,99), 1);
+			v4 col = v4(srgb(147,199,99), 0.5f);
 			
-			f32 l = -2;
-			f32 r = +2;
+			auto& r = g_buf.cursor_rect;
 			
 			std::initializer_list<Vertex> data = {
-				{ g_buf.cursor_line.a +v2(r,0), col },
-				{ g_buf.cursor_line.b +v2(r,0), col },
-				{ g_buf.cursor_line.a +v2(l,0), col },
-				{ g_buf.cursor_line.a +v2(l,0), col },
-				{ g_buf.cursor_line.b +v2(r,0), col },
-				{ g_buf.cursor_line.b +v2(l,0), col },
+				{ r.pos +r.dim * v2(1,0), col },
+				{ r.pos +r.dim * v2(1,1), col },
+				{ r.pos +r.dim * v2(0,0), col },
+				{ r.pos +r.dim * v2(0,0), col },
+				{ r.pos +r.dim * v2(1,1), col },
+				{ r.pos +r.dim * v2(0,1), col },
 			};
 			
 			vbo_px_col.upload(data);
