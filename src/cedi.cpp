@@ -37,7 +37,7 @@ struct Options {
 	
 	s32		tab_spaces =					4;
 	
-	f32		min_cursor_w_percent_of_char =	0 ? 0.25f : 1;
+	f32		min_cursor_w_percent_of_char =	1 ? 0.25f : 1;
 	f32		min_cursor_w_px =				4;
 	
 	f32		tex_buffer_margin =				4;
