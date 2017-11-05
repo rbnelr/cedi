@@ -3,10 +3,10 @@
  
 ## controls
  <table>
-	<tr><td>keys</td>				<td>default</td>	<td>function</td></tr>
-	<tr><td>arrow keys</td>			<td></td>			<td>text cursor control</td></tr>
-	<tr><td>ALT+N</td>				<td>off</td>		<td>toggle newline and tab character visualisation</td></tr>
-	<tr><td>ALT+T+<inc/dec></td>	<td>4 spaces</td>	<td>change tab spaces count</td></tr>
+	<tr><td>keys</td>					<td>default</td>	<td>function</td></tr>
+	<tr><td>arrow keys</td>				<td></td>			<td>text cursor control</td></tr>
+	<tr><td>ALT+N</td>					<td>off</td>		<td>toggle whitespace character drawing (space, tab and newline chars</td></tr>
+	<tr><td>ALT+T+&lt;inc/dec&gt;</td>	<td>4 spaces</td>	<td>change tab spaces count</td></tr>
  </table>
  
 ### technical specs
