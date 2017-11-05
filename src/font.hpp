@@ -193,7 +193,7 @@ namespace font {
 		
 		void draw_emitted_glyphs (Shader_Text cr shad, std::vector<VBO_Text::V>* vbo_buf) {
 			
-			if (1) { // show texture
+			if (0) { // show texture
 				v2 left_bottom =	v2(wnd_dim.x -(f32)tex.w, (f32)tex.h);
 				v2 right_top =		v2(wnd_dim.x, 0);
 				for (v2 quad_vert : QUAD_VERTS) {
