@@ -48,10 +48,10 @@
 	#define BUILTIN_F64_QNAN				__builtin_nan("0")
 	#define DBGBREAK						do { asm volatile ("int3"); } while(0)
 		
-	#define BUILTIN_F32_INF					(__builtin_inff())
-	#define BUILTIN_F64_INF					(__builtin_inf())
-	#define BUILTIN_F32_QNAN				__builtin_nan("0")
-	#define BUILTIN_F64_QNAN				__builtin_nan("0")
+	#define F32_INF							(__builtin_inff())
+	#define F64_INF							(__builtin_inf())
+	#define F32_QNAN						__builtin_nan("0")
+	#define F64_QNAN						__builtin_nan("0")
 	
 #elif RZ_COMP == RZ_COMP_GCC
 	#define FORCEINLINE						__attribute__((always_inline)) inline

@@ -1,12 +1,17 @@
 
+static void init ();
+static void refresh ();
+
 static void move_cursor_left ();
 static void move_cursor_right ();
 static void move_cursor_up ();
 static void move_cursor_down ();
 
-static void insert_char (utf32 c) {}
-static void delete_prev_char () {}
-static void delete_next_char () {}
+static void insert_char (utf32 c);
+static void insert_tab ();
+static void insert_newline ();
+static void delete_prev_char ();
+static void delete_next_char ();
 
 
 struct Rect {
@@ -20,16 +25,37 @@ static bool			fullscreen;
 static Rect			_suggested_wnd_rect;
 static Rect			_restore_wnd_rect;
 
-static u32			frame_indx; // probably should only used for debug logic
-
-static f64			t;
-static f32			dt;
-
 static iv2			wnd_dim;
 static v2			wnd_dim_aspect;
 static iv2			mcursor_pos;
 static bool			mcursor_in_wnd;
-static s32			scrollwheel_diff;
+
+static void platform_get_frame_input () {
+	{
+		glfwGetFramebufferSize(wnd, &wnd_dim.x, &wnd_dim.y);
+		dbg_assert(wnd_dim.x > 0 && wnd_dim.y > 0);
+		
+		v2 tmp = (v2)wnd_dim;
+		wnd_dim_aspect = tmp / v2(tmp.y, tmp.x);
+	}
+	
+	{
+		dv2 pos;
+		glfwGetCursorPos(wnd, &pos.x, &pos.y);
+		mcursor_pos = iv2( (s32)floor(pos.x), (s32)floor(pos.y) );
+	}
+}
+
+static s32 _scrollwheel_diff = 0;
+static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
+	_scrollwheel_diff += (s32)floor(yoffset);
+}
+
+static s32 get_scrollwheel_diff () {
+	auto ret = _scrollwheel_diff;
+	_scrollwheel_diff = 0;
+	return _scrollwheel_diff;
+}
 
 static bool			resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
 
@@ -46,7 +72,7 @@ static void toggle_fullscreen () {
 	}
 	fullscreen = !fullscreen;
 	
-	glfwSwapInterval(1); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
+	glfwSwapInterval(0); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
 }
 static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
 	::fullscreen = !fullscreen;
@@ -68,9 +94,7 @@ static Rect get_monitor_rect () {
 static void glfw_error_proc (int err, cstr msg) {
 	fprintf(stderr, ANSI_COLOUR_CODE_RED "GLFW Error! 0x%x '%s'\n" ANSI_COLOUR_CODE_NC, err, msg);
 }
-static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
-	scrollwheel_diff += (s32)floor(yoffset);
-}
+
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	//printf("glfw_text_proc: '%c' [%x]\n", codepoint, codepoint);
 	insert_char(codepoint);
@@ -94,10 +118,10 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 			} break;
 			case GLFW_KEY_ENTER:
 			case GLFW_KEY_KP_ENTER: {
-				insert_char(U'\n');
+				insert_newline();
 			} break;
 			case GLFW_KEY_TAB: {
-				insert_char(U'\t');
+				insert_tab();
 			} break;
 			
 			case GLFW_KEY_LEFT: {
@@ -160,6 +184,10 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 	
 }
 
+static void glfw_refresh (GLFWwindow* wnd) {
+	refresh();
+}
+
 static void setup_glfw () {
 	glfwSetErrorCallback(glfw_error_proc);
 	
@@ -177,6 +205,8 @@ static void setup_glfw () {
 	
 	glfwGetWindowPos(wnd, &_suggested_wnd_rect.pos.x,&_suggested_wnd_rect.pos.y);
 	glfwGetWindowSize(wnd, &_suggested_wnd_rect.dim.x,&_suggested_wnd_rect.dim.y);
+	
+	glfwSetWindowRefreshCallback(wnd, glfw_refresh);
 	
 	glfwSetKeyCallback(wnd, glfw_key_proc);
 	glfwSetCharCallback(wnd, glfw_text_proc);
@@ -206,49 +236,16 @@ int main (int argc, char** argv) {
 	
 	init();
 	
-	bool	dragging = false;
-	v2		dragging_grab_pos_world;
-	
-	dt = 0;
-	u64	initial_ts = glfwGetTimerValue();
-	u64	prev_frame_end = initial_ts;
-	
-	for (frame_indx=0;; ++frame_indx) {
-		t = (f64)(prev_frame_end -initial_ts) / glfwGetTimerFrequency();
-		
-		scrollwheel_diff = 0;
-		
-		glfwPollEvents();
-		
-		if (glfwWindowShouldClose(wnd)) break;
-		
-		{
-			glfwGetFramebufferSize(wnd, &wnd_dim.x, &wnd_dim.y);
-			dbg_assert(wnd_dim.x > 0 && wnd_dim.y > 0);
-			
-			v2 tmp = (v2)wnd_dim;
-			wnd_dim_aspect = tmp / v2(tmp.y, tmp.x);
-		}
-		
-		{
-			dv2 pos;
-			glfwGetCursorPos(wnd, &pos.x, &pos.y);
-			mcursor_pos = iv2( (s32)floor(pos.x), (s32)floor(pos.y) );
-		}
-		
-		frame();
-		
-		glfwSwapBuffers(wnd);
-		
-		{
-			u64 now = glfwGetTimerValue();
-			dt = (f32)(now -prev_frame_end) / (f32)glfwGetTimerFrequency();
-			prev_frame_end = now;
-		}
-	}
+	do {
+		glfwWaitEvents();
+	} while (!glfwWindowShouldClose(wnd));
 	
 	glfwDestroyWindow(wnd);
 	glfwTerminate();
 	
 	return 0;
+}
+
+static void platform_present_frame () {
+	glfwSwapBuffers(wnd);
 }

@@ -37,13 +37,22 @@ DONE:
  added all colors as user options
  added newline handling (\n \r and \r\n are all counted as one newline)
  
-#2017.11.06 Mo tag
+#2017.11.06 Mo tag-abend
  cursor x sticking working, but there might be a way to handle x sticking that feels even better
+ 
+ while rewriting into event based drawing
+  -> switched to event based drawing (draw after each char insert/cursor move and when the window
+   needs to be refreshed (refresh callback))
+  -> reimplemented character insert/delete
  
 TODO
 -FEATURES:
  
- character insert/delete
+ do file loading first
+ 
+ file saving
+ 
+ reimplement some kind of cursor sticking (maybe my new idea?)
  
  shift select
  -> highlight selection
@@ -51,6 +60,11 @@ TODO
  -> select copy and paste
  -> windows copy/paste clipboard would be useful
  -> line swap hotkey (CTRL-T in notepad++)
+ 
+ implement no allowing editing withing newline sequences?
+ 
+ (as option) automaticly ensure that the last line always ends in newline ?
+ 
  
 -BUGS:
  

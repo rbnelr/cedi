@@ -27,7 +27,7 @@ namespace font {
 	f32 jpsz = floor(sz * 1.75f);
 	
 	static std::initializer_list<Glyph_Range> ranges = {
-		{ nullptr,		sz,		U'\xfffd', U'\xfffd' }, // missing glyph placeholder
+		{ nullptr,		sz,		U'\xfffd', U'\xfffd' }, // missing glyph placeholder, must be the zeroeth glyph
 		//{ "arial.ttf",	sz,		U'\0', U'\x1f' }, // control characters // does not work for some reason, even though FontForge shows that these glyphs exist at least in arial.ttf
 		{ nullptr,		sz,		ws_visual }, // whitespace visualizers
 		{ nullptr,		sz,		U' ', U'~' },
@@ -170,7 +170,8 @@ namespace font {
 				}
 			}
 			
-			dbg_assert(false, "Glyph '%c' [%x] missing in font", c, c);
+			// This is probably a normal thing to happen, so no assert
+			//dbg_assert(false, "Glyph '%c' [%x] missing in font", c, c);
 			return 0; // missing glyph
 		}
 		

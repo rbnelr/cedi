@@ -11,6 +11,9 @@
 #include "math.hpp"
 
 #if RZ_COMP == RZ_COMP_GCC
+	// gcc compiler bug with constexpr:
+	// internal compiler error: in cxx_eval_constant_expression, at cp/constexpr.c:3503
+	//  static Options opt;
 	#define constexpr 
 #else
 	
@@ -52,9 +55,6 @@ struct Options {
 
 static Options opt;
 
-static void init ();
-static void frame ();
-
 #include "glfw_engine.hpp"
 #include "font.hpp"
 
@@ -70,32 +70,57 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		f32		pos_y;
 		std::vector<f32>		chars_pos_px;
+		
+		s32 _count_newlines () {
+			auto len = text.size();
+			if (len == 0) return 0;
+			
+			utf32 a = text[len -1];
+			if (a != '\n' && a != '\r') return 0;
+			
+			if (len == 1) return 1;
+			
+			utf32 b = text[len -2];
+			if (b != '\n' && b != '\r') return 1;
+			
+			dbg_assert(a != b);
+			return 2;
+		}
+		s32 get_newlineless_len () {
+			s32 newline_chars = _count_newlines();
+			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
+			
+			return text.size() -newline_chars;
+		}
+		
+		s32 get_max_cursor_c () {
+			s32 newline_chars = _count_newlines();
+			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
+			
+			s32 max_c = text.size();
+			if (opt.draw_whitespace) {
+				max_c -= newline_chars ? 1 : 0; // max cursor c is on the last newline char (or beyon the last character of the last line which does not have a newline char)
+			} else {
+				max_c -= newline_chars; // max cursor c is on the first newline char
+			}
+			
+			return max_c;
+		}
 	};
 	
 	Line*	first_line;
 	
-	static s32 max_cursor_pos_on_line (Line const* l) {
-		// on each line except the last there always has to be at least a newline char
-		// on last line there is no newline char -> we can place the cursor on the imaginary last character
-		s32 ret = l->text.size();
-		if (l->next) {
-			dbg_assert(ret > 0);
-			ret -= 1;
-		}
-		return ret;
-	}
-	
 	struct Cursor {
 		Line*	lp; // line the cursor is in (use this for logic)
-		s32		l; // mainly use this var for debggung and diplaying to the user
+		s32		l; // mainly use this var for debggung and diplaying to the user (getting l from a linked list is slow)
 		
 		s32		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
-		f32		stick_x; // always stores the x position the cursor is sticking at
-		
-		bool is_sticking_beyond_line () {
-			f32 line_max_x = lp->chars_pos_px[ lp->text.size() ];
-			return stick_x > line_max_x;
-		}
+		//f32		stick_x; // always stores the x position the cursor is sticking at
+		//
+		//bool is_sticking_beyond_line () {
+		//	f32 line_max_x = lp->chars_pos_px[ lp->text.size() ];
+		//	return stick_x > line_max_x;
+		//}
 	};
 	
 	Cursor	cursor;
@@ -134,13 +159,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		cursor.lp = first_line;
 	}
-	
-	struct _Cursor_Rect {
-		v2 pos;
-		v2 dim;
-	};
-	
-	_Cursor_Rect cursor_rect;
 	
 	void gen_chars_pos_and_vbo_data () {
 		
@@ -237,29 +255,38 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			++line_i;
 		} while (cur_line);
 		
-		{
-			f32 w = 0;
-			f32 x = cursor.stick_x;
-			
-			if (!cursor.is_sticking_beyond_line()) {
-				x = cursor.lp->chars_pos_px[ cursor.c ];
-				
-				if (cursor.c < ((s32)cursor.lp->chars_pos_px.size() -1)) {
-					w = cursor.lp->chars_pos_px[ cursor.c +1 ] -x; // could be imaginary last character
-				}
-				// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
-				w *= opt.min_cursor_w_percent_of_char;
-			}
-			
-			w = max(w, opt.min_cursor_w_px);
-			
-			cursor_rect = {	v2(x -g_font.border_left, cursor.lp->pos_y -g_font.line_height +g_font.descent_plus_gap), v2(w, g_font.line_height) };
-		}
 	}
 	
+	struct Cursor_Rect {
+		v2 pos;
+		v2 dim;
+	};
+	
+	Cursor_Rect get_cursor_rect () {
+		f32 w = 0;
+		//f32 x = cursor.stick_x;
+		f32 x;
+		
+		//if (!cursor.is_sticking_beyond_line()) {
+			x = cursor.lp->chars_pos_px[ cursor.c ];
+			
+			if (cursor.c < ((s32)cursor.lp->chars_pos_px.size() -1)) {
+				w = cursor.lp->chars_pos_px[ cursor.c +1 ] -x; // could be imaginary last character
+			}
+			// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+			w *= opt.min_cursor_w_percent_of_char;
+		//}
+		
+		w = max(w, opt.min_cursor_w_px);
+		
+		return {	v2(x -g_font.border_left, cursor.lp->pos_y -g_font.line_height +g_font.descent_plus_gap),
+					v2(w, g_font.line_height) };
+	}
+	
+	//
 	void move_cursor_left () {
 		// when the cursor is sticking beyond the line then left moves the cursor onto the last proper char position (makes the cursor non-sticking)
-		if (!cursor.is_sticking_beyond_line()) {
+		//if (!cursor.is_sticking_beyond_line()) {
 			
 			if (cursor.c > 0) {
 				--cursor.c;
@@ -268,16 +295,16 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 					dbg_assert(cursor.l > 0);
 					--cursor.l;
 					cursor.lp = cursor.lp->prev;
-					cursor.c = max_cursor_pos_on_line(cursor.lp);
+					cursor.c = cursor.lp->get_max_cursor_c();
 				}
 			}
 			
-		}
+		//}
 		
-		cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
+		//cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
 	}
 	void move_cursor_right () {
-		if (cursor.c < max_cursor_pos_on_line(cursor.lp)) {
+		if (cursor.c < cursor.lp->get_max_cursor_c()) {
 			++cursor.c;
 		} else {
 			if (cursor.lp->next) {
@@ -287,29 +314,30 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
+		//cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
 	}
 	
-	static s32 nearest_char_to_cur_char_x (Line* dst, f32 x) {
-		dbg_assert(dst->chars_pos_px.size() >= 1);
-		
-		f32 nearest_dist = +INF;
-		s32 nearest_i;
-		
-		s32 i=0;
-		for (; i<(s32)dst->chars_pos_px.size(); ++i) {
-			f32 dist = abs(dst->chars_pos_px[i] -x);
-			if (dist < nearest_dist) {
-				nearest_dist = dist;
-				nearest_i = i;
-			}
-		}
-		
-		return nearest_i;
-	}
+	//static s32 nearest_char_to_cur_char_x (Line* dst, f32 x) {
+	//	dbg_assert(dst->chars_pos_px.size() >= 1);
+	//	
+	//	f32 nearest_dist = +INF;
+	//	s32 nearest_i;
+	//	
+	//	s32 i=0;
+	//	for (; i<(s32)dst->chars_pos_px.size(); ++i) {
+	//		f32 dist = abs(dst->chars_pos_px[i] -x);
+	//		if (dist < nearest_dist) {
+	//			nearest_dist = dist;
+	//			nearest_i = i;
+	//		}
+	//	}
+	//	
+	//	return nearest_i;
+	//}
 	
 	void _cursor_vertical (Line* dst, Line* src) {
-		cursor.c = min( max_cursor_pos_on_line(dst), nearest_char_to_cur_char_x(dst, cursor.stick_x) );
+		//cursor.c = min( dst->get_max_cursor_c(), nearest_char_to_cur_char_x(dst, cursor.stick_x) );
+		cursor.c = min(dst->get_max_cursor_c(), cursor.c);
 		cursor.lp = dst;
 	}
 	
@@ -330,14 +358,93 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		}
 	}
 	
+	void insert_char (utf32 c) {
+		cursor.lp->text.insert(cursor.lp->text.begin() +cursor.c, c);
+		++cursor.c;
+	}
+	void insert_tab () {
+		insert_char(U'\t');
+	}
+	void insert_newline () {
+		// insert line after current line
+		Line* prev = cursor.lp;
+		Line* new_ = new Line;
+		Line* next = cursor.lp->next;
+		
+		if (prev) prev->next = new_;
+		
+		new_->prev = prev;
+		new_->next = next;
+		
+		if (next) next->prev = new_;
+		
+		{ // Move chars afte cursor to new line
+			auto b = cursor.lp->text.begin() +cursor.c;
+			auto e = cursor.lp->text.end();
+			
+			new_->text.insert(new_->text.begin(), b, e);
+			cursor.lp->text.erase(b, e);
+		}
+		// insert newline char
+		cursor.lp->text.push_back(U'\n');
+		// move cursor to new line
+		cursor.lp = new_;
+		++cursor.l;
+		cursor.c = 0;
+	}
+	
+	void newline_delete_merge_lines (Line* newline_l) {
+		// marge two lines by deleting newline
+		dbg_assert(newline_l && newline_l->next);
+		
+		Line* prev = newline_l;
+		Line* cur = prev->next;
+		Line* next = cur->next;
+		
+		prev->next = next;
+		
+		if (next) next->prev = prev;
+		
+		// delete prev newline char
+		prev->text.erase(	prev->text.begin() +prev->get_newlineless_len(),
+							prev->text.begin() +prev->text.size());
+		
+		// move cursor to end of prev line
+		cursor.lp = prev;
+		--cursor.l;
+		cursor.c = (s32)prev->text.size();
+		
+		// Merge line text
+		prev->text.insert(prev->text.end(), cur->text.begin(), cur->text.end());
+		
+		delete cur;
+	}
+	
+	void delete_prev_char () {
+		if (cursor.c > 0) {
+			// TODO: need to handle case of last line here
+			cursor.lp->text.erase(cursor.lp->text.begin() +(cursor.c -1));
+			--cursor.c;
+		} else {
+			if (cursor.lp->prev) {
+				// marge line with previous line
+				newline_delete_merge_lines(cursor.lp->prev);
+			}
+		}
+	}
+	void delete_next_char () {
+		if (cursor.c < cursor.lp->get_newlineless_len()) {
+			cursor.lp->text.erase(cursor.lp->text.begin() +cursor.c);
+		} else {
+			if (cursor.lp->next) {
+				// marge line with next line
+				newline_delete_merge_lines(cursor.lp);
+			}
+		}
+	}
 };
 
 Text_Buffer g_buf; // init to zero/null
-
-static void move_cursor_left () {	g_buf.move_cursor_left();	}
-static void move_cursor_right () {	g_buf.move_cursor_right();	}
-static void move_cursor_up () {		g_buf.move_cursor_up();		}
-static void move_cursor_down () {	g_buf.move_cursor_down();	}
 
 #define TEST U"test Tst\n123\nかきくけこ　ゴゴごご\nあべし\nABeShi\n"
 #define C_PROG \
@@ -350,7 +457,7 @@ static void move_cursor_down () {	g_buf.move_cursor_down();	}
 	U"	\n" \
 	U"	return 0;\n" \
 	U"}\n"
-#define C_PROG_2 \
+#define C_PROG2 \
 	U"\n" \
 	U"#include <stdio.h>\r\n" \
 	U"int main (int argc, char** argv) {\n" \
@@ -361,12 +468,6 @@ static void move_cursor_down () {	g_buf.move_cursor_down();	}
 	U"\0blah"
 #define TEST2 U"static void insert_char (utf32 c) {\n"
 
-static constexpr cstr		APP_NAME =		u8"cedi";
-
-static f32					running_avg_fps;
-
-static std::basic_string<utf8>		wnd_title;
-
 static Shader_Text					shad_text;
 static Shader_Fullscreen_Tex_Copy	shad_text_copy;
 static Shader_Cursor_Pass			shad_cursor_pass;
@@ -376,6 +477,9 @@ static VBO_Cursor_Pass		vbo_cursor;
 typedef VBO_Cursor_Pass::V Vertex;
 
 static RGBA_Framebuffer		fb_text;
+
+static void pre_update ();
+static void draw ();
 
 static void init  () {
 	auto mr = get_monitor_rect();
@@ -394,7 +498,7 @@ static void init  () {
 	#endif
 	init_show_window(false, r);
 	
-	running_avg_fps = 60; // assume 60 fps initially
+	glfwSetWindowTitle(wnd, u8"cedi");
 	
 	g_font.init("consola.ttf");
 	
@@ -413,73 +517,88 @@ static void init  () {
 	
 	g_buf.cursor.l = 3;
 	g_buf.cursor.lp = g_buf.first_line->next->next->next;
+	
+	pre_update();
+	draw();
 }
 
-static void frame () {
-	
-	if (frame_indx != 0) {
-		f32 alpha = 0.025f;
-		running_avg_fps = running_avg_fps*(1.0f -alpha) +(1.0f/dt)*alpha;
-	}
-	{
-		prints(&wnd_title, "%s  ~%.1f fps  %.3f ms", APP_NAME, running_avg_fps, dt*1000);
-		glfwSetWindowTitle(wnd, wnd_title.c_str());
-	}
-	
-	{
-		g_buf.gen_chars_pos_and_vbo_data();
-		
-		{ // text pass
-			fb_text.bind_and_clear(wnd_dim, v4(0));
-			
-			shad_text.bind();
-			shad_text.wnd_dim.set( (v2)wnd_dim );
-			shad_text.bind_texture(g_font.tex);
-			
-			g_font.draw_emitted_glyphs(shad_text, &g_buf.vbo_char_vert_data);
-		}
-		
-		{ // draw cursor
-			bind_backbuffer(wnd_dim);
-			clear_framebuffer(v4(opt.col_background,0));
-			
-			//
-			shad_text_copy.bind();
-			shad_text_copy.bind_fb(fb_text);
-			shad_text_copy.wnd_dim.set( (v2)wnd_dim );
-			
-			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			
-			glDrawArrays(GL_TRIANGLES, 0, 6);
-			
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			
-			//
-			shad_cursor_pass.bind();
-			shad_cursor_pass.bind_fb(fb_text);
-			shad_cursor_pass.wnd_dim.set( (v2)wnd_dim );
-			shad_cursor_pass.col_background.set( opt.col_background );
-			shad_cursor_pass.col_highlighted.set( opt.col_text_highlighted );
-			
-			{
-				auto& r = g_buf.cursor_rect;
-				
-				std::initializer_list<Vertex> data = {
-					{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor,1) },
-					{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
-					{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
-					{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
-					{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
-					{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor,1) },
-				};
-				
-				vbo_cursor.upload(data);
-				vbo_cursor.bind(shad_cursor_pass);
-				
-				glDrawArrays(GL_TRIANGLES, 0, data.size());
-			}
-		}
-		
-	}
+static void pre_update () {
+	platform_get_frame_input(); // update 
 	
 }
+
+static void draw () {
+	
+	g_buf.gen_chars_pos_and_vbo_data();
+	auto cursor_rect = g_buf.get_cursor_rect();
+	
+	{ // text pass
+		fb_text.bind_and_clear(wnd_dim, v4(0));
+		
+		shad_text.bind();
+		shad_text.wnd_dim.set( (v2)wnd_dim );
+		shad_text.bind_texture(g_font.tex);
+		
+		g_font.draw_emitted_glyphs(shad_text, &g_buf.vbo_char_vert_data);
+	}
+	
+	{ // draw cursor
+		bind_backbuffer(wnd_dim);
+		clear_framebuffer(v4(opt.col_background,0));
+		
+		//
+		shad_text_copy.bind();
+		shad_text_copy.bind_fb(fb_text);
+		shad_text_copy.wnd_dim.set( (v2)wnd_dim );
+		
+		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+		
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		
+		//
+		shad_cursor_pass.bind();
+		shad_cursor_pass.bind_fb(fb_text);
+		shad_cursor_pass.wnd_dim.set( (v2)wnd_dim );
+		shad_cursor_pass.col_background.set( opt.col_background );
+		shad_cursor_pass.col_highlighted.set( opt.col_text_highlighted );
+		
+		{
+			auto& r = cursor_rect;
+			
+			std::initializer_list<Vertex> data = {
+				{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor,1) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
+				{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor,1) },
+			};
+			
+			vbo_cursor.upload(data);
+			vbo_cursor.bind(shad_cursor_pass);
+			
+			glDrawArrays(GL_TRIANGLES, 0, data.size());
+		}
+	}
+	
+	platform_present_frame();
+}
+
+static void refresh () { // refresh without input event
+	pre_update();
+	draw();
+}
+
+// input events
+static void move_cursor_left () {	pre_update();	g_buf.move_cursor_left();	draw();	}
+static void move_cursor_right () {	pre_update();	g_buf.move_cursor_right();	draw();	}
+static void move_cursor_up () {		pre_update();	g_buf.move_cursor_up();		draw();	}
+static void move_cursor_down () {	pre_update();	g_buf.move_cursor_down();	draw();	}
+
+static void insert_char (utf32 c) {	pre_update();	g_buf.insert_char(c);		draw();	}
+static void insert_tab () {			pre_update();	g_buf.insert_tab();			draw();	}
+static void insert_newline () {		pre_update();	g_buf.insert_newline();		draw();	}
+static void delete_prev_char () {	pre_update();	g_buf.delete_prev_char();	draw();	}
+static void delete_next_char () {	pre_update();	g_buf.delete_next_char();	draw();	}
