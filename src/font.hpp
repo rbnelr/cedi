@@ -127,7 +127,7 @@ namespace font {
 						ascent_plus_gap = +ascent*scale +ceiled_line_gap/2;
 						descent_plus_gap = -descent*scale +ceiled_line_gap/2;
 						
-						printf(">>> %f %f %f %f\n", border_left, ascent_plus_gap, descent_plus_gap, line_height);
+						//printf(">>> %f %f %f %f\n", border_left, ascent_plus_gap, descent_plus_gap, line_height);
 						
 					}
 				}

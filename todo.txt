@@ -37,6 +37,9 @@ DONE:
  added all colors as user options
  added newline handling (\n \r and \r\n are all counted as one newline)
  
+#2017.11.06 Mo tag
+ cursor x sticking working, but there might be a way to handle x sticking that feels even better
+ 
 TODO
 -FEATURES:
  

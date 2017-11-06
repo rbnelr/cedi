@@ -9,6 +9,13 @@
 
 #include "lang_helpers.hpp"
 #include "math.hpp"
+
+#if RZ_COMP == RZ_COMP_GCC
+	#define constexpr 
+#else
+	
+#endif
+
 #include "vector/vector.hpp"
 
 typedef s32v2	iv2;
@@ -37,8 +44,8 @@ struct Options {
 	
 	s32		tab_spaces =					4;
 	
-	f32		min_cursor_w_percent_of_char =	1 ? 0.25f : 1;
-	f32		min_cursor_w_px =				4;
+	f32		min_cursor_w_percent_of_char =	0 ? 0.25f : 1;
+	f32		min_cursor_w_px =				6;
 	
 	f32		tex_buffer_margin =				4;
 };
@@ -60,19 +67,35 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		Line*	prev;
 		
 		std::vector<utf32>	text; // can contain U'\0' since we want to be able to handle files with null termintors in them
-		std::vector<v2>		chars_pos_px; // seperate y pos for each char to support line wrap (one line in the file gets visually split into multiple lines if it would cross outside the buffer window)
+		
+		f32		pos_y;
+		std::vector<f32>		chars_pos_px;
 	};
 	
 	Line*	first_line;
+	
+	static s32 max_cursor_pos_on_line (Line const* l) {
+		// on each line except the last there always has to be at least a newline char
+		// on last line there is no newline char -> we can place the cursor on the imaginary last character
+		s32 ret = l->text.size();
+		if (l->next) {
+			dbg_assert(ret > 0);
+			ret -= 1;
+		}
+		return ret;
+	}
 	
 	struct Cursor {
 		Line*	lp; // line the cursor is in (use this for logic)
 		s32		l; // mainly use this var for debggung and diplaying to the user
 		
 		s32		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
+		f32		stick_x; // always stores the x position the cursor is sticking at
 		
-		//bool	is_horiz_sticking;
-		//f32		stick_c;
+		bool is_sticking_beyond_line () {
+			f32 line_max_x = lp->chars_pos_px[ lp->text.size() ];
+			return stick_x > line_max_x;
+		}
 	};
 	
 	Cursor	cursor;
@@ -141,6 +164,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				emit_glyph(U'|', opt.col_line_numbers_bar);
 			}
 			
+			cur_line->pos_y = pos_y_px;
 			cur_line->chars_pos_px.clear();
 			
 			u32 tab_char_i=0;
@@ -154,10 +178,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				++tab_char_i;
 			};
 			
-			for (s32 char_i=0; char_i<cur_line->text.size(); ++char_i) {
+			for (s32 char_i=0; char_i<(s32)cur_line->text.size(); ++char_i) {
 				utf32 c = cur_line->text[ char_i ];
 				
-				cur_line->chars_pos_px.push_back( v2(pos_x_px, pos_y_px) );
+				cur_line->chars_pos_px.push_back(pos_x_px);
 				
 				switch (c) {
 					case U'\t': {
@@ -203,7 +227,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				}
 			}
 			
-			cur_line->chars_pos_px.push_back( v2(pos_x_px, pos_y_px) ); // push char pos for imaginary last character, to be able to determine width of last char on line
+			cur_line->chars_pos_px.push_back(pos_x_px); // push char pos for imaginary last character, to be able to determine width of last char on line
 			
 			//
 			cur_line = cur_line->next;
@@ -213,42 +237,44 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			++line_i;
 		} while (cur_line);
 		
-		v2 pos = cursor.lp->chars_pos_px[ cursor.c ];
-		
-		f32 w = 0;
-		if (cursor.c < (cursor.lp->chars_pos_px.size() -1)) {
-			w = cursor.lp->chars_pos_px[ cursor.c +1 ].x -pos.x; // could be imaginary last character
+		{
+			f32 w = 0;
+			f32 x = cursor.stick_x;
+			
+			if (!cursor.is_sticking_beyond_line()) {
+				x = cursor.lp->chars_pos_px[ cursor.c ];
+				
+				if (cursor.c < ((s32)cursor.lp->chars_pos_px.size() -1)) {
+					w = cursor.lp->chars_pos_px[ cursor.c +1 ] -x; // could be imaginary last character
+				}
+				// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+				w *= opt.min_cursor_w_percent_of_char;
+			}
+			
+			w = max(w, opt.min_cursor_w_px);
+			
+			cursor_rect = {	v2(x -g_font.border_left, cursor.lp->pos_y -g_font.line_height +g_font.descent_plus_gap), v2(w, g_font.line_height) };
 		}
-		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
-		w *= opt.min_cursor_w_percent_of_char;
-		w = max(w, opt.min_cursor_w_px);
-		
-		cursor_rect = {	v2(pos.x -g_font.border_left, pos.y -g_font.line_height +g_font.descent_plus_gap),
-						v2(w, g_font.line_height) };
-	}
-	
-	static s32 max_cursor_pos_on_line (Line const* l) {
-		// on each line except the last there always has to be at least a newline char
-		// on last line there is no newline char -> we can place the cursor on the imaginary last character
-		s32 ret = l->text.size();
-		if (l->next) {
-			dbg_assert(ret > 0);
-			ret -= 1;
-		}
-		return ret; 
 	}
 	
 	void move_cursor_left () {
-		if (cursor.c > 0) {
-			--cursor.c;
-		} else {
-			if (cursor.lp->prev) {
-				dbg_assert(cursor.l > 0);
-				--cursor.l;
-				cursor.lp = cursor.lp->prev;
-				cursor.c = max_cursor_pos_on_line(cursor.lp);
+		// when the cursor is sticking beyond the line then left moves the cursor onto the last proper char position (makes the cursor non-sticking)
+		if (!cursor.is_sticking_beyond_line()) {
+			
+			if (cursor.c > 0) {
+				--cursor.c;
+			} else {
+				if (cursor.lp->prev) {
+					dbg_assert(cursor.l > 0);
+					--cursor.l;
+					cursor.lp = cursor.lp->prev;
+					cursor.c = max_cursor_pos_on_line(cursor.lp);
+				}
 			}
+			
 		}
+		
+		cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
 	}
 	void move_cursor_right () {
 		if (cursor.c < max_cursor_pos_on_line(cursor.lp)) {
@@ -260,6 +286,8 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				cursor.c = 0;
 			}
 		}
+		
+		cursor.stick_x = cursor.lp->chars_pos_px[ cursor.c ];
 	}
 	
 	static s32 nearest_char_to_cur_char_x (Line* dst, f32 x) {
@@ -269,8 +297,8 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		s32 nearest_i;
 		
 		s32 i=0;
-		for (; i<dst->chars_pos_px.size(); ++i) {
-			f32 dist = abs(dst->chars_pos_px[i].x -x);
+		for (; i<(s32)dst->chars_pos_px.size(); ++i) {
+			f32 dist = abs(dst->chars_pos_px[i] -x);
 			if (dist < nearest_dist) {
 				nearest_dist = dist;
 				nearest_i = i;
@@ -280,14 +308,17 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		return nearest_i;
 	}
 	
+	void _cursor_vertical (Line* dst, Line* src) {
+		cursor.c = min( max_cursor_pos_on_line(dst), nearest_char_to_cur_char_x(dst, cursor.stick_x) );
+		cursor.lp = dst;
+	}
+	
 	void move_cursor_up () {
 		Line* cur_line = cursor.lp;
 		Line* dst_line = cursor.lp->prev;
 		if (dst_line) {
 			--cursor.l;
-			cursor.c = min( max_cursor_pos_on_line(dst_line),
-					nearest_char_to_cur_char_x(dst_line, cur_line->chars_pos_px[cursor.c].x) );
-			cursor.lp = dst_line;
+			_cursor_vertical(dst_line, cur_line);
 		}
 	}
 	void move_cursor_down () {
@@ -295,11 +326,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		Line* dst_line = cursor.lp->next;
 		if (dst_line) {
 			++cursor.l;
-			cursor.c = min( max_cursor_pos_on_line(dst_line),
-					nearest_char_to_cur_char_x(dst_line, cur_line->chars_pos_px[cursor.c].x) );
-			cursor.lp = dst_line;
+			_cursor_vertical(dst_line, cur_line);
 		}
 	}
+	
 };
 
 Text_Buffer g_buf; // init to zero/null
@@ -325,6 +355,7 @@ static void move_cursor_down () {	g_buf.move_cursor_down();	}
 	U"#include <stdio.h>\r\n" \
 	U"int main (int argc, char** argv) {\n" \
 	U"\0	printf(\"Hello World!\\n\");\r\n" \
+	U"	char ああああああああああああ = 'A';\r\n" \
 	U" 	return 0;\n" \
 	U"}\r" \
 	U"\0blah"
