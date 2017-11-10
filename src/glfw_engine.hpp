@@ -1,17 +1,25 @@
 
+#include "stdio.h"
+
 static void init ();
-static void refresh ();
+static void resize_wnd (iv2 dim);
+static void draw ();
 
 static void move_cursor_left ();
 static void move_cursor_right ();
 static void move_cursor_up ();
 static void move_cursor_down ();
+static void mouse_scroll (s32 offs);
 
 static void insert_char (utf32 c);
 static void insert_tab ();
 static void insert_newline ();
 static void delete_prev_char ();
 static void delete_next_char ();
+
+static void open_file (cstr filename);
+
+//static 
 
 
 struct Rect {
@@ -25,39 +33,18 @@ static bool			fullscreen;
 static Rect			_suggested_wnd_rect;
 static Rect			_restore_wnd_rect;
 
-static iv2			wnd_dim;
-static v2			wnd_dim_aspect;
-static iv2			mcursor_pos;
-static bool			mcursor_in_wnd;
-
-static void platform_get_frame_input () {
-	{
-		glfwGetFramebufferSize(wnd, &wnd_dim.x, &wnd_dim.y);
-		dbg_assert(wnd_dim.x > 0 && wnd_dim.y > 0);
-		
-		v2 tmp = (v2)wnd_dim;
-		wnd_dim_aspect = tmp / v2(tmp.y, tmp.x);
-	}
-	
-	{
-		dv2 pos;
-		glfwGetCursorPos(wnd, &pos.x, &pos.y);
-		mcursor_pos = iv2( (s32)floor(pos.x), (s32)floor(pos.y) );
-	}
+static void glfw_resize (GLFWwindow* window, int width, int height) {
+	resize_wnd( max(iv2(width,height), iv2(1)) );
 }
 
-static s32 _scrollwheel_diff = 0;
 static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
-	_scrollwheel_diff += (s32)floor(yoffset);
+	mouse_scroll( (s32)floor(yoffset) );
+	draw();
 }
 
-static s32 get_scrollwheel_diff () {
-	auto ret = _scrollwheel_diff;
-	_scrollwheel_diff = 0;
-	return _scrollwheel_diff;
-}
+static bool			_resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
 
-static bool			resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
+static char _filename_buf[512];
 
 static void toggle_fullscreen () {
 	if (fullscreen) {
@@ -73,6 +60,7 @@ static void toggle_fullscreen () {
 	fullscreen = !fullscreen;
 	
 	glfwSwapInterval(0); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
+	
 }
 static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
 	::fullscreen = !fullscreen;
@@ -98,9 +86,12 @@ static void glfw_error_proc (int err, cstr msg) {
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	//printf("glfw_text_proc: '%c' [%x]\n", codepoint, codepoint);
 	insert_char(codepoint);
+	draw();
 }
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
+	
+	bool update = false;
 	
 	//cstr name = glfwGetKeyName(key, scancode);
 	//printf("Button %s: %d\n", name ? name : "<null>", action);
@@ -112,40 +103,50 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		switch (key) {
 			case GLFW_KEY_BACKSPACE: {
 				delete_prev_char();
+				update = true;
 			} break;
 			case GLFW_KEY_DELETE: {
 				delete_next_char();
+				update = true;
 			} break;
 			case GLFW_KEY_ENTER:
 			case GLFW_KEY_KP_ENTER: {
 				insert_newline();
+				update = true;
 			} break;
 			case GLFW_KEY_TAB: {
 				insert_tab();
+				update = true;
 			} break;
 			
 			case GLFW_KEY_LEFT: {
 				move_cursor_left();
+				update = true;
 			} break;
 			case GLFW_KEY_RIGHT: {
 				move_cursor_right();
+				update = true;
 			} break;
 			case GLFW_KEY_UP: {
 				move_cursor_up();
+				update = true;
 			} break;
 			case GLFW_KEY_DOWN: {
 				move_cursor_down();
+				update = true;
 			} break;
 			
 			// generic decrease
 			case GLFW_KEY_MINUS:
 			case GLFW_KEY_KP_SUBTRACT : {
 				generic_incdec = -1;
+				update = true;
 			} break;
 			// generic increase
 			case GLFW_KEY_EQUAL: // pseudo '+' key, this would be the '+' key when shift is pressed
 			case GLFW_KEY_KP_ADD: {
 				generic_incdec = +1;
+				update = true;
 			} break;
 		}
 	}
@@ -162,6 +163,19 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 			switch (key) {
 				case GLFW_KEY_N: {
 					opt.draw_whitespace = !opt.draw_whitespace;
+					update = true;
+				} break;
+			}
+		}
+		
+		if (mods & GLFW_MOD_CONTROL) { // ... ALT+key
+			switch (key) {
+				case GLFW_KEY_O: {
+					printf("Open File menu: ");
+					_filename_buf[0] = '\0';
+					fgets(_filename_buf, arrlen(_filename_buf), stdin);
+					open_file(_filename_buf);
+					update = true;
 				} break;
 			}
 		}
@@ -171,21 +185,23 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		
 		if (mods & GLFW_MOD_ALT) { // ... ALT+key
 			switch (key) {
-				case GLFW_KEY_T : {
-					resizing_tab_spaces = action == GLFW_PRESS;
+				case GLFW_KEY_T: {
+					_resizing_tab_spaces = action == GLFW_PRESS;
+					update = true;
 				} break;
 			}
 		}
 	}
 	
-	if (resizing_tab_spaces) {
+	if (_resizing_tab_spaces) {
 		opt.tab_spaces = max(opt.tab_spaces +generic_incdec, 1);
 	}
 	
+	if (update) draw();
 }
 
 static void glfw_refresh (GLFWwindow* wnd) {
-	refresh();
+	draw();
 }
 
 static void setup_glfw () {
@@ -207,6 +223,7 @@ static void setup_glfw () {
 	glfwGetWindowSize(wnd, &_suggested_wnd_rect.dim.x,&_suggested_wnd_rect.dim.y);
 	
 	glfwSetWindowRefreshCallback(wnd, glfw_refresh);
+	glfwSetFramebufferSizeCallback(wnd, glfw_resize);
 	
 	glfwSetKeyCallback(wnd, glfw_key_proc);
 	glfwSetCharCallback(wnd, glfw_text_proc);

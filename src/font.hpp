@@ -72,7 +72,7 @@ namespace font {
 			
 			struct Loaded_Font_File {
 				cstr			filename;
-				File_Data		f;
+				std::vector<byte>		f;
 			};
 			
 			std::vector<Loaded_Font_File> loaded_files;
@@ -102,12 +102,13 @@ namespace font {
 				auto filepath = prints("%s%s", fonts_folder, filename);
 				
 				if (!font_file) {
-					loaded_files.push_back({ filename, load_file(filepath.c_str()) });
-					font_file = &loaded_files.back();
+					loaded_files.push_back({ filename }); font_file = &loaded_files.back();
+					
+					load_file(filepath.c_str(), &font_file->f);
 					
 					if (cur == 0) {
 						stbtt_fontinfo info;
-						dbg_assert( stbtt_InitFont(&info, font_file->f.data, 0) );
+						dbg_assert( stbtt_InitFont(&info, &font_file->f[0], 0) );
 						
 						f32 scale = stbtt_ScaleForPixelHeight(&info, sz);
 						
@@ -135,7 +136,7 @@ namespace font {
 				r.pr.chardata_for_range = &glyphs_packed_chars[cur];
 				cur += r.pr.num_chars;
 				
-				dbg_assert( stbtt_PackFontRanges(&spc, font_file->f.data, 0, &r.pr, 1) > 0);
+				dbg_assert( stbtt_PackFontRanges(&spc, &font_file->f[0], 0, &r.pr, 1) > 0);
 				
 			}
 			

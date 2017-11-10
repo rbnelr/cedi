@@ -36,6 +36,8 @@
 rem /main
 
 :vs
+	del !ROOT!!proj!.exe
+	
 	if [!release!] == [0] (
 		set dbg=/Od /EHsc /Ob1 /MDd /Zi /DRZ_DBG=1
 	) else  (
@@ -56,6 +58,8 @@ rem /main
 rem /vs
 
 :gcc
+	del !ROOT!!proj!.exe
+	
 	if [!release!] == [0] (
 		set dbg=-O0 -DRZ_DBG=1
 	) else  (

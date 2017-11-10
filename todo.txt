@@ -45,14 +45,20 @@ DONE:
    needs to be refreshed (refresh callback))
   -> reimplemented character insert/delete
  
-TODO
--FEATURES:
- 
+#2017.11.07 Di tag-abend
  do file loading first
  
- file saving
+#2017.11.08 Mi tag
+ scrolling working
  
- reimplement some kind of cursor sticking (maybe my new idea?)
+#2017.11.09 Do tag
+ improved event based updating, no arkward pre_update() needed now
+ 
+ scrolling working even when resizing the window
+ -> cursor should never be able to move outside the window, since i call update_scroll before drawing
+ 
+TODO
+-FEATURES:
  
  shift select
  -> highlight selection
@@ -61,7 +67,11 @@ TODO
  -> windows copy/paste clipboard would be useful
  -> line swap hotkey (CTRL-T in notepad++)
  
- implement no allowing editing withing newline sequences?
+ reimplement some kind of cursor sticking (maybe my new idea?)
+ 
+ file saving
+ 
+ implement not allowing editing withing newline sequences?
  
  (as option) automaticly ensure that the last line always ends in newline ?
  
