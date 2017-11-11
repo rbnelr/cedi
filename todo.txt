@@ -60,6 +60,9 @@ DONE:
 TODO
 -FEATURES:
  
+ scrolling with mouse and page up/down
+ smooth scrolling
+ 
  shift select
  -> highlight selection
  -> deleting selected block with BACKSPACE/DELETE or by overwriting it via typing

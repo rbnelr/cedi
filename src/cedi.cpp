@@ -73,6 +73,8 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		f32		pos_y;
 		std::vector<f32>		chars_pos_px;
 		
+		bool _visible;
+		
 		u32 _count_newlines () {
 			auto len = text.size();
 			if (len == 0) return 0;
@@ -88,14 +90,14 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			dbg_assert(a != b);
 			return 2;
 		}
-		u32 get_newlineless_len () {
+		u64 get_newlineless_len () {
 			u32 newline_chars = _count_newlines();
 			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
 			
 			return text.size() -newline_chars;
 		}
 		
-		u64 get_max_cursor_c () {
+		s64 get_max_cursor_c () {
 			u32 newline_chars = _count_newlines();
 			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
 			
@@ -106,18 +108,47 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				max_c -= newline_chars; // max cursor c is on the first newline char
 			}
 			
-			return max_c;
+			return (s64)max_c;
 		}
 	};
 	
 	Line*	first_line;
-	u64		line_count;
+	s64		line_count;
+	
+	s64 _search_line_i (Line* lp) {
+		Line* cur = first_line;
+		for (s64 i=0;; ++i) {
+			if (lp == cur) {
+				return i;
+			}
+			cur = cur->next;
+		}
+		dbg_assert(false);
+		return 0;
+	}
+	bool _linep_matched_li (Line* lp, s64 li) {
+		return _search_line_i(lp) == li;
+	}
+	Line* _inc_lp (Line* lp, s64 diff) {
+		if (diff > 0) {
+			for (s64 i=0; i<diff; ++i) {
+				if (!lp) break;
+				lp = lp->next;
+			}
+		} else {
+			for (s64 i=0; i<-diff; ++i) {
+				if (!lp) break;
+				lp = lp->prev;
+			}
+		}
+		return lp;
+	}
 	
 	struct Cursor {
 		Line*	lp; // line the cursor is in (use this for logic)
-		u64		l; // mainly use this var for debggung and diplaying to the user (getting l from a linked list is slow)
+		s64		l; // mainly use this var for debggung and diplaying to the user (getting l from a linked list is slow)
 		
-		u64		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
+		s64		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
 		
 	};
 	
@@ -126,17 +157,75 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	iv2		sub_wnd_dim;
 	
-	s64		scroll; // index of first line visible in text buffer window (from the top)
-	u64 get_visible_line_count () {
-		return max( (u64)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height ) -1, (u64)1 );
+	// scrolling
+	s64		scroll; // index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
+	Line*	first_visible_line;
+	
+	s64 get_visible_line_count () {
+		s64 ret = max( (s64)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height ) -1, (s64)1 );
+		ret += min(scroll, (s64)0);
+		dbg_assert(ret >= 1);
+		return ret;
 	}
 	
-	void update_scroll () {
-		s64 vis = (s64)get_visible_line_count();
+	#if 0
+	void scroll_diff (s64 diff) {
+		if (diff > 0) {
+			s64 first_visible_line_diff = max( (s64)0, diff +min(scroll, (s64)0) );
+			for (s64 i=0; i<first_visible_line_diff; ++i) {
+				if (!first_visible_line->next) break;
+				first_visible_line = first_visible_line->next;
+			}
+		} else {
+			for (s64 i=0; i<-diff; ++i) {
+				if (!first_visible_line->prev) break;
+				first_visible_line = first_visible_line->prev;
+			}
+		}
+		scroll += diff;
 		
-		scroll = min(scroll, (s64)cursor.l);
-		scroll = max(scroll +(vis -1), (s64)cursor.l) -(vis -1);
+		printf(">> scroll %lld diff %lld\n", scroll, diff);
+		dbg_assert(_linep_matched_li(first_visible_line, max((s64)0, scroll)),
+				">>> is %lld should be %lld", _search_line_i(first_visible_line), max((s64)0, scroll));
 	}
+	void update_scroll () {
+		s64 vis = get_visible_line_count();
+		
+		s64 new_scroll = scroll;
+		new_scroll = min(new_scroll, cursor.l);
+		new_scroll = max(new_scroll +(vis -1), cursor.l) -(vis -1);
+		
+		scroll_diff(new_scroll -scroll);
+	}
+	#else
+	void cursor_move_scroll () {
+		
+	}
+	void pageup_scroll () {
+		
+	}
+	void pagedown_scroll () {
+		
+	}
+	void mouse_scroll (s32 diff) {
+		diff = -diff;
+		
+		if (diff > 0) {
+			s64 first_visible_line_diff = max( (s64)0, diff +min(scroll, (s64)0) );
+			for (s64 i=0; i<first_visible_line_diff; ++i) {
+				if (!first_visible_line->next) break;
+				first_visible_line = first_visible_line->next;
+			}
+		} else {
+			for (s64 i=0; i<-diff; ++i) {
+				if (!first_visible_line->prev) break;
+				first_visible_line = first_visible_line->prev;
+			}
+		}
+		scroll += diff;
+		
+	}
+	#endif
 	
 	std::vector<VBO_Text::V> vbo_char_vert_data;
 	
@@ -151,7 +240,11 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cursor.l = 0;
 		cursor.c = 0;
 		
-		open_file("src/cedi.cpp");
+		scroll = 0;
+		first_visible_line = first_line;
+		
+		//open_file("src/cedi.cpp");
+		open_file("build.bat");
 	}
 	void free_lines () {
 		Line* cur = first_line;
@@ -196,6 +289,11 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cur_line->next = nullptr; // cur_line == last line
 		
 		cursor.lp = first_line;
+		cursor.l = 0;
+		cursor.c = 0;
+		
+		scroll = 0;
+		first_visible_line = first_line;
 	}
 	
 	void gen_chars_pos_and_vbo_data () {
@@ -211,6 +309,12 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			pos_x_px = g_font.border_left +opt.tex_buffer_margin;
 			
 			auto emit_glyph = [&] (utf32 c, v3 col) {
+				
+				if (cur_line == first_visible_line)
+					col *= v3(1,0,0);
+				if (cur_line == _inc_lp(first_visible_line, get_visible_line_count() -1))
+					col *= v3(0,0,1);
+				
 				pos_x_px = g_font.emit_glyph(&vbo_char_vert_data, pos_x_px,pos_y_px, c, v4(col,1));
 			};
 			
@@ -378,7 +482,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			--cursor.l;
 			_cursor_vertical(dst_line, cur_line);
 			
-			//update_scroll();
 		}
 	}
 	void move_cursor_down () {
@@ -388,12 +491,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			++cursor.l;
 			_cursor_vertical(dst_line, cur_line);
 			
-			//update_scroll();
 		}
-	}
-	
-	void mouse_scroll (s32 diff) {
-		scroll -= diff;
 	}
 	
 	void insert_char (utf32 c) {
@@ -459,8 +557,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		delete cur;
 		--line_count;
-		
-		//update_scroll();
 	}
 	
 	void delete_prev_char () {
@@ -577,9 +673,12 @@ static void resize_wnd (iv2 dim) {
 	draw();
 }
 
+f64 last_t;
 static void draw () {
 	
-	g_buf.update_scroll();
+	auto t = glfwGetTime();
+	printf(">>> frame %f\n", (t -last_t) * 1000);
+	last_t = t;
 	
 	g_buf.gen_chars_pos_and_vbo_data();
 	auto cursor_rect = g_buf.get_cursor_rect();

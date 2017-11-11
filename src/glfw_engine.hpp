@@ -1,6 +1,4 @@
 
-#include "stdio.h"
-
 static void init ();
 static void resize_wnd (iv2 dim);
 static void draw ();
@@ -172,8 +170,15 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 			switch (key) {
 				case GLFW_KEY_O: {
 					printf("Open File menu: ");
+					
 					_filename_buf[0] = '\0';
 					fgets(_filename_buf, arrlen(_filename_buf), stdin);
+					
+					auto len = strlen(_filename_buf);
+					if (_filename_buf[len -1] == '\n') {
+						_filename_buf[len -1] = '\0';
+					}
+					
 					open_file(_filename_buf);
 					update = true;
 				} break;
