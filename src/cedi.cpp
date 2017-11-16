@@ -63,17 +63,17 @@ static iv2 wnd_dim; // dimensions of windows window in px
 //
 static font::Font			g_font; // one font for everything for now
 
+typedef s64 buf_indx_t;
+
 struct Text_Buffer { // A buffer (think file) that the editor can display, it contains lines of text
+	
+	typedef buf_indx_t indx_t;
+	
 	struct Line {
-		Line*	next;
-		Line*	prev;
-		
 		std::vector<utf32>	text; // can contain U'\0' since we want to be able to handle files with null termintors in them
 		
 		f32		pos_y;
-		std::vector<f32>		chars_pos_px;
-		
-		bool _visible;
+		std::vector<f32>	chars_x_px;
 		
 		u32 _count_newlines () {
 			auto len = text.size();
@@ -90,114 +90,171 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			dbg_assert(a != b);
 			return 2;
 		}
-		u64 get_newlineless_len () {
+		indx_t get_newlineless_len () {
 			u32 newline_chars = _count_newlines();
-			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
-			
 			return text.size() -newline_chars;
 		}
 		
-		s64 get_max_cursor_c () {
+		indx_t get_max_cursor_c () {
 			u32 newline_chars = _count_newlines();
-			dbg_assert(!next || newline_chars > 0, "only last line can not end in a newline char");
 			
-			u64 max_c = text.size();
+			indx_t max_c = (indx_t)text.size();
 			if (opt.draw_whitespace) {
 				max_c -= newline_chars ? 1 : 0; // max cursor c is on the last newline char (or beyon the last character of the last line which does not have a newline char)
 			} else {
 				max_c -= newline_chars; // max cursor c is on the first newline char
 			}
 			
-			return (s64)max_c;
+			return max_c;
 		}
 	};
 	
-	Line*	first_line;
-	s64		line_count;
-	
-	s64 _search_line_i (Line* lp) {
-		Line* cur = first_line;
-		for (s64 i=0;; ++i) {
-			if (lp == cur) {
-				return i;
-			}
-			cur = cur->next;
-		}
-		dbg_assert(false);
-		return 0;
-	}
-	bool _linep_matched_li (Line* lp, s64 li) {
-		return _search_line_i(lp) == li;
-	}
-	Line* _inc_lp (Line* lp, s64 diff) {
-		if (diff > 0) {
-			for (s64 i=0; i<diff; ++i) {
-				if (!lp) break;
-				lp = lp->next;
-			}
-		} else {
-			for (s64 i=0; i<-diff; ++i) {
-				if (!lp) break;
-				lp = lp->prev;
-			}
-		}
-		return lp;
-	}
+	std::vector<Line> lines;
 	
 	struct Cursor {
-		Line*	lp; // line the cursor is in (use this for logic)
-		s64		l; // mainly use this var for debggung and diplaying to the user (getting l from a linked list is slow)
-		
-		s64		c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
-		
+		indx_t	l;
+		indx_t	c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
 	};
 	
 	Cursor	cursor;
-	Cursor	select_cursor; // select_cursor.lp == nullptr -> not in selecting state
 	
 	iv2		sub_wnd_dim;
 	
 	// scrolling
-	s64		scroll; // index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
-	Line*	first_visible_line;
+	indx_t		scroll; // index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
 	
-	s64 get_visible_line_count () {
-		s64 ret = max( (s64)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height ) -1, (s64)1 );
-		ret += min(scroll, (s64)0);
-		dbg_assert(ret >= 1);
-		return ret;
+	struct Line_Range {
+		indx_t first, count;
+	};
+	Line_Range get_visible_line_range () {
+		indx_t first = clamp(scroll, (indx_t)0, (indx_t)(lines.size() -1));
+		
+		indx_t count = max( (indx_t)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height ), (indx_t)1 );
+		
+		if (scroll < 0) {
+			count += scroll;
+		} else if ((first +count) >= lines.size()) {
+			count -= (first +count) -lines.size();
+		}
+		count = max(count, (indx_t)1);
+		
+		return {first, count};
 	}
 	
-	#if 0
-	void scroll_diff (s64 diff) {
-		if (diff > 0) {
-			s64 first_visible_line_diff = max( (s64)0, diff +min(scroll, (s64)0) );
-			for (s64 i=0; i<first_visible_line_diff; ++i) {
-				if (!first_visible_line->next) break;
-				first_visible_line = first_visible_line->next;
-			}
+	//
+	void move_cursor_left () {
+		if (cursor.c > 0) {
+			--cursor.c;
 		} else {
-			for (s64 i=0; i<-diff; ++i) {
-				if (!first_visible_line->prev) break;
-				first_visible_line = first_visible_line->prev;
+			if (cursor.l > 0) {
+				--cursor.l;
+				cursor.c = lines[cursor.l].get_max_cursor_c();
 			}
 		}
-		scroll += diff;
-		
-		printf(">> scroll %lld diff %lld\n", scroll, diff);
-		dbg_assert(_linep_matched_li(first_visible_line, max((s64)0, scroll)),
-				">>> is %lld should be %lld", _search_line_i(first_visible_line), max((s64)0, scroll));
 	}
-	void update_scroll () {
-		s64 vis = get_visible_line_count();
-		
-		s64 new_scroll = scroll;
-		new_scroll = min(new_scroll, cursor.l);
-		new_scroll = max(new_scroll +(vis -1), cursor.l) -(vis -1);
-		
-		scroll_diff(new_scroll -scroll);
+	void move_cursor_right () {
+		if (cursor.c < lines[cursor.l].get_max_cursor_c()) {
+			++cursor.c;
+		} else {
+			if (cursor.l < (lines.size() -1)) {
+				++cursor.l;
+				cursor.c = 0;
+			}
+		}
 	}
-	#else
+	
+	void move_cursor_up () {
+		if (cursor.l > 0) {
+			--cursor.l;
+			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
+		}
+	}
+	void move_cursor_down () {
+		if (cursor.l < (lines.size() -1)) {
+			++cursor.l;
+			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
+		}
+	}
+	
+	void insert_char (utf32 c) {
+		lines[cursor.l].text.insert(lines[cursor.l].text.begin() +cursor.c, c);
+		++cursor.c;
+	}
+	void insert_tab () {
+		insert_char(U'\t');
+	}
+	void insert_newline () {
+		// insert line after current line
+		auto& cur = lines[cursor.l];
+		auto& new_ = *lines.insert( lines.begin() +cursor.l +1, Line() );
+		
+		{ // Move chars after cursor to new line
+			auto b = cur.text.begin() +cursor.c;
+			auto e = cur.text.end();
+			
+			new_.text.insert(new_.text.begin(), b, e); // paste text after cursor into new line
+			cur.text.erase(b, e); // delete text after cursor from current line
+		}
+		// terminte current line with newline
+		cur.text.push_back(U'\n');
+		// move cursor to beginning of new line
+		++cursor.l;
+		cursor.c = 0;
+	}
+	
+	void newline_delete_merge_lines (indx_t newline_l) {
+		// marge two lines by deleting newline
+		dbg_assert(newline_l < (lines.size() -1)); // cant merge last line with nothing
+		
+		auto& newl = lines[newline_l];
+		auto& next = lines[newline_l +1];
+		
+		// delete newline-line newline char
+		newl.text.erase(	newl.text.begin() +newl.get_newlineless_len(),
+							newl.text.begin() +newl.text.size());
+		
+		// move cursor to end of newline-line (the place where we deleted the newline char)
+		if (cursor.l != newline_l) --cursor.l;
+		cursor.c = (indx_t)newl.text.size();
+		
+		// Merge line text
+		newl.text.insert(newl.text.end(), next.text.begin(), next.text.end());
+		
+		lines.erase( lines.begin() +(newline_l +1), lines.begin() +(newline_l +2) );
+	}
+	
+	void delete_prev_char () {
+		if (cursor.c > 0) {
+			lines[cursor.l].text.erase( lines[cursor.l].text.begin() +(cursor.c -1) );
+			--cursor.c;
+		} else {
+			if (cursor.l > 0) {
+				// marge previous line with current line
+				newline_delete_merge_lines(cursor.l -1);
+			}
+		}
+	}
+	void delete_next_char () {
+		if (cursor.c < lines[cursor.l].get_newlineless_len()) {
+			lines[cursor.l].text.erase( lines[cursor.l].text.begin() +cursor.c );
+		} else {
+			if (cursor.l < (lines.size() -1)) {
+				// marge current line with next line
+				newline_delete_merge_lines(cursor.l);
+			}
+		}
+	}
+	
+	void open_file (cstr filename) {
+		std::vector<byte> tmp;
+		if (load_file_skip_bom(filename, &tmp, UTF8_BOM, arrlen(UTF8_BOM))) {
+			init_from_str((utf8*)&tmp[0], tmp.size());
+			printf("done.\n");
+		} else {
+			printf("Could not open file '%s'!\n", filename);
+		}
+	}
+	
 	void cursor_move_scroll () {
 		
 	}
@@ -208,148 +265,110 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 	}
 	void mouse_scroll (s32 diff) {
-		diff = -diff;
-		
-		if (diff > 0) {
-			s64 first_visible_line_diff = max( (s64)0, diff +min(scroll, (s64)0) );
-			for (s64 i=0; i<first_visible_line_diff; ++i) {
-				if (!first_visible_line->next) break;
-				first_visible_line = first_visible_line->next;
-			}
-		} else {
-			for (s64 i=0; i<-diff; ++i) {
-				if (!first_visible_line->prev) break;
-				first_visible_line = first_visible_line->prev;
-			}
-		}
-		scroll += diff;
-		
+		scroll -= diff;
 	}
-	#endif
 	
+	//
 	std::vector<VBO_Text::V> vbo_char_vert_data;
 	
 	void init () {
-		first_line = new Line;
-		first_line->next = nullptr;
-		first_line->prev = nullptr;
-		
-		line_count = 1;
-		
-		cursor.lp = first_line;
 		cursor.l = 0;
 		cursor.c = 0;
 		
 		scroll = 0;
-		first_visible_line = first_line;
 		
 		//open_file("src/cedi.cpp");
 		open_file("build.bat");
 	}
-	void free_lines () {
-		Line* cur = first_line;
-		first_line = nullptr;
-		do {
-			Line* tmp = cur->next;
-			delete cur;
-			cur = tmp;
-		} while (cur);
-	}
 	void init_from_str (utf8 const* str, u64 len) {
 		
-		free_lines();
-		
-		first_line = new Line;
-		first_line->prev = nullptr;
-		line_count = 1;
-		
-		Line* cur_line = first_line;
+		lines.clear();
+		lines.push_back({});
 		
 		auto* in = str;
 		while (in != (str +len)) {
 			utf32 c = utf8_to_utf32(&in);
 			
-			cur_line->text.push_back( c );
+			if (c == U'\n' && lines.size() % 2) lines.back().text.push_back( U'\r' );
+			
+			lines.back().text.push_back( c );
 			
 			if (c == U'\n' || c == U'\r') {
 				if (in != (str +len) && (*in == '\n' || *in == '\r') && (utf32)*in != c) {
-					cur_line->text.push_back( utf8_to_utf32(&in) );
+					lines.back().text.push_back( utf8_to_utf32(&in) );
 				}
 				
-				Line* next_line = new Line;
-				++line_count;
-				
-				cur_line->next = next_line;
-				next_line->prev = cur_line;
-				
-				cur_line = next_line;
+				lines.push_back({});
 			}
 		}
 		
-		cur_line->next = nullptr; // cur_line == last line
-		
-		cursor.lp = first_line;
 		cursor.l = 0;
 		cursor.c = 0;
 		
 		scroll = 0;
-		first_visible_line = first_line;
 	}
 	
-	void gen_chars_pos_and_vbo_data () {
+	struct Cursor_Rect {
+		v2 pos;
+		v2 dim;
+	};
+	
+	Cursor_Rect generate_layout () {
 		
 		vbo_char_vert_data.clear();
+		
+		auto vis_lines = get_visible_line_range();
 		
 		f32	pos_x_px;
 		f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin +(f32)((s64)g_font.line_height * -scroll);
 		
-		auto* cur_line = first_line;
-		u32	line_i=0;
-		do {
+		for (indx_t line_i=0; line_i<(indx_t)lines.size(); ++line_i) {
+			auto& l = lines[line_i];
+			
 			pos_x_px = g_font.border_left +opt.tex_buffer_margin;
 			
 			auto emit_glyph = [&] (utf32 c, v3 col) {
 				
-				if (cur_line == first_visible_line)
+				if (line_i == vis_lines.first)
 					col *= v3(1,0,0);
-				if (cur_line == _inc_lp(first_visible_line, get_visible_line_count() -1))
+				if (line_i == (vis_lines.first +vis_lines.count -1))
 					col *= v3(0,0,1);
 				
 				pos_x_px = g_font.emit_glyph(&vbo_char_vert_data, pos_x_px,pos_y_px, c, v4(col,1));
 			};
 			
 			{ // emit line numbers
-				u64 digit_count = 0;
+				u32 digit_count = 0; // max needed digits to diplay line numbers
 				{
-					dbg_assert(line_count > 0);
-					u64 num = line_count -1;
+					dbg_assert(lines.size() > 0);
+					indx_t num = (indx_t)lines.size() -1; // max needed number to diplay line numbers
 					while (num != 0) {
 						num /= 10;
 						++digit_count;
 					}
-					digit_count = max(digit_count, (u64)1);
+					digit_count = max(digit_count, (u32)1);
 				}
 				
-				u64 num = line_i;
+				u32 num = line_i;
 				utf32 buf[32];
-				u64 num_len = 0;
+				u32 num_len = 0;
 				for (; num_len<digit_count; ++num_len) {
 					if (num_len > 0 && num == 0) break;
 					buf[num_len] = num % 10;
 					num /= 10;
 				}
-				num_len = max(num_len, (u64)1);
+				num_len = max(num_len, (u32)1);
 				
-				for (u64 i=digit_count; i!=0;) { --i;
+				for (u32 i=digit_count; i!=0;) { --i;
 					emit_glyph(i < num_len ? U'0' +buf[i] : U' ', opt.col_line_numbers);
 				}
 				emit_glyph(U'|', opt.col_line_numbers_bar);
 			}
 			
-			cur_line->pos_y = pos_y_px;
-			cur_line->chars_pos_px.clear();
+			l.pos_y = pos_y_px;
+			l.chars_x_px.clear();
 			
-			u32 tab_char_i=0;
+			indx_t tab_char_i=0;
 			
 			auto draw_escaped_char = [&] (utf32 c) {
 				auto tmp = pos_x_px;
@@ -360,16 +379,16 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				++tab_char_i;
 			};
 			
-			for (s32 char_i=0; char_i<(s32)cur_line->text.size(); ++char_i) {
-				utf32 c = cur_line->text[ char_i ];
+			for (indx_t char_i=0; char_i<(indx_t)l.text.size(); ++char_i) {
+				utf32 c = l.text[ char_i ];
 				
-				cur_line->chars_pos_px.push_back(pos_x_px);
+				l.chars_x_px.push_back(pos_x_px);
 				
 				switch (c) {
 					case U'\t': {
-						u32 spaces_needed = opt.tab_spaces -(tab_char_i % opt.tab_spaces);
+						indx_t spaces_needed = opt.tab_spaces -(tab_char_i % opt.tab_spaces);
 						
-						for (u32 j=0; j<spaces_needed; ++j) {
+						for (indx_t j=0; j<spaces_needed; ++j) {
 							auto c = U' ';
 							if (opt.draw_whitespace) {
 								c = j<spaces_needed-1 ? U'—' : U'→';
@@ -409,188 +428,28 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				}
 			}
 			
-			cur_line->chars_pos_px.push_back(pos_x_px); // push char pos for imaginary last character, to be able to determine width of last char on line
-			
-			//
-			cur_line = cur_line->next;
+			l.chars_x_px.push_back(pos_x_px); // push char pos for imaginary last character, to be able to determine width of last char on line
 			
 			pos_y_px += g_font.line_height;
 			
-			++line_i;
-		} while (cur_line);
+		}
 		
-	}
-	
-	struct Cursor_Rect {
-		v2 pos;
-		v2 dim;
-	};
-	
-	Cursor_Rect get_cursor_rect () {
+		//
+		f32 x = lines[cursor.l].chars_x_px[ cursor.c ];
+		
 		f32 w = 0;
-		f32 x;
-		
-			x = cursor.lp->chars_pos_px[ cursor.c ];
-			
-			if (cursor.c < (cursor.lp->chars_pos_px.size() -1)) {
-				w = cursor.lp->chars_pos_px[ cursor.c +1 ] -x; // could be imaginary last character
-			}
-			// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
-			w *= opt.min_cursor_w_percent_of_char;
+		if (cursor.c < (lines[cursor.l].chars_x_px.size() -1)) {
+			w = lines[cursor.l].chars_x_px[ cursor.c +1 ] -x; // could be imaginary last character
+		}
+		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+		w *= opt.min_cursor_w_percent_of_char;
 		
 		w = max(w, opt.min_cursor_w_px);
 		
-		return {	v2(x -g_font.border_left, cursor.lp->pos_y -g_font.line_height +g_font.descent_plus_gap),
+		return {	v2(x -g_font.border_left, lines[cursor.l].pos_y -g_font.line_height +g_font.descent_plus_gap),
 					v2(w, g_font.line_height) };
 	}
 	
-	//
-	void move_cursor_left () {
-		// when the cursor is sticking beyond the line then left moves the cursor onto the last proper char position (makes the cursor non-sticking)
-		if (cursor.c > 0) {
-			--cursor.c;
-		} else {
-			if (cursor.lp->prev) {
-				dbg_assert(cursor.l > 0);
-				--cursor.l;
-				cursor.lp = cursor.lp->prev;
-				cursor.c = cursor.lp->get_max_cursor_c();
-			}
-		}
-	}
-	void move_cursor_right () {
-		if (cursor.c < cursor.lp->get_max_cursor_c()) {
-			++cursor.c;
-		} else {
-			if (cursor.lp->next) {
-				++cursor.l;
-				cursor.lp = cursor.lp->next;
-				cursor.c = 0;
-			}
-		}
-	}
-	
-	void _cursor_vertical (Line* dst, Line* src) {
-		cursor.c = min(dst->get_max_cursor_c(), cursor.c);
-		cursor.lp = dst;
-	}
-	
-	void move_cursor_up () {
-		Line* cur_line = cursor.lp;
-		Line* dst_line = cursor.lp->prev;
-		if (dst_line) {
-			--cursor.l;
-			_cursor_vertical(dst_line, cur_line);
-			
-		}
-	}
-	void move_cursor_down () {
-		Line* cur_line = cursor.lp;
-		Line* dst_line = cursor.lp->next;
-		if (dst_line) {
-			++cursor.l;
-			_cursor_vertical(dst_line, cur_line);
-			
-		}
-	}
-	
-	void insert_char (utf32 c) {
-		cursor.lp->text.insert(cursor.lp->text.begin() +cursor.c, c);
-		++cursor.c;
-	}
-	void insert_tab () {
-		insert_char(U'\t');
-	}
-	void insert_newline () {
-		// insert line after current line
-		Line* prev = cursor.lp;
-		Line* new_ = new Line;
-		Line* next = cursor.lp->next;
-		
-		++line_count;
-		
-		if (prev) prev->next = new_;
-		
-		new_->prev = prev;
-		new_->next = next;
-		
-		if (next) next->prev = new_;
-		
-		{ // Move chars afte cursor to new line
-			auto b = cursor.lp->text.begin() +cursor.c;
-			auto e = cursor.lp->text.end();
-			
-			new_->text.insert(new_->text.begin(), b, e);
-			cursor.lp->text.erase(b, e);
-		}
-		// insert newline char
-		cursor.lp->text.push_back(U'\n');
-		// move cursor to new line
-		cursor.lp = new_;
-		++cursor.l;
-		cursor.c = 0;
-	}
-	
-	void newline_delete_merge_lines (Line* newline_l) {
-		// marge two lines by deleting newline
-		dbg_assert(newline_l && newline_l->next);
-		
-		Line* prev = newline_l;
-		Line* cur = prev->next;
-		Line* next = cur->next;
-		
-		prev->next = next;
-		
-		if (next) next->prev = prev;
-		
-		// delete prev newline char
-		prev->text.erase(	prev->text.begin() +prev->get_newlineless_len(),
-							prev->text.begin() +prev->text.size());
-		
-		// move cursor to end of prev line
-		if (cursor.lp != newline_l) --cursor.l;
-		cursor.lp = prev;
-		cursor.c = (s32)prev->text.size();
-		
-		// Merge line text
-		prev->text.insert(prev->text.end(), cur->text.begin(), cur->text.end());
-		
-		delete cur;
-		--line_count;
-	}
-	
-	void delete_prev_char () {
-		if (cursor.c > 0) {
-			// TODO: need to handle case of last line here
-			cursor.lp->text.erase(cursor.lp->text.begin() +(cursor.c -1));
-			--cursor.c;
-		} else {
-			if (cursor.lp->prev) {
-				// marge line with previous line
-				newline_delete_merge_lines(cursor.lp->prev);
-			}
-		}
-	}
-	void delete_next_char () {
-		if (cursor.c < cursor.lp->get_newlineless_len()) {
-			cursor.lp->text.erase(cursor.lp->text.begin() +cursor.c);
-		} else {
-			if (cursor.lp->next) {
-				// marge line with next line
-				newline_delete_merge_lines(cursor.lp);
-			}
-		}
-	}
-	
-	void open_file (cstr filename) {
-		std::vector<byte> tmp;
-		if (load_file_skip_bom(filename, &tmp, UTF8_BOM, arrlen(UTF8_BOM))) {
-			init_from_str((utf8*)&tmp[0], tmp.size());
-			printf("done.\n");
-		} else {
-			printf("Could not open file '%s'!\n", filename);
-		}
-	}
 };
 
 Text_Buffer g_buf; // init to zero/null
@@ -680,8 +539,7 @@ static void draw () {
 	printf(">>> frame %f\n", (t -last_t) * 1000);
 	last_t = t;
 	
-	g_buf.gen_chars_pos_and_vbo_data();
-	auto cursor_rect = g_buf.get_cursor_rect();
+	auto cursor_rect = g_buf.generate_layout();
 	
 	{ // text pass
 		fb_text.bind_and_clear(wnd_dim, v4(0));

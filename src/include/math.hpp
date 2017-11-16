@@ -32,12 +32,25 @@ static constexpr f64 to_deg (f64 ang) {	return ang * RAD_TO_DEGd; }
 #define RAD_180	deg(180)
 #define RAD_90	deg(90)
 
-template <typename T> static constexpr
-T min (T l, T r) { return l <= r ? l : r; }
-template <typename T> static constexpr
-T max (T l, T r) { return l >= r ? l : r; }
+static constexpr s32 min (s32 l, s32 r) { return l <= r ? l : r; }
+static constexpr s32 max (s32 l, s32 r) { return l >= r ? l : r; }
+static constexpr u32 min (u32 l, u32 r) { return l <= r ? l : r; }
+static constexpr u32 max (u32 l, u32 r) { return l >= r ? l : r; }
+static constexpr s64 min (s64 l, s64 r) { return l <= r ? l : r; }
+static constexpr s64 max (s64 l, s64 r) { return l >= r ? l : r; }
+static constexpr u64 min (u64 l, u64 r) { return l <= r ? l : r; }
+
+static constexpr u64 max (u64 l, u64 r) { return l >= r ? l : r; }
+static constexpr f32 min (f32 l, f32 r) { return l <= r ? l : r; }
+static constexpr f32 max (f32 l, f32 r) { return l >= r ? l : r; }
+static constexpr f64 min (f64 l, f64 r) { return l <= r ? l : r; }
+static constexpr f64 max (f64 l, f64 r) { return l >= r ? l : r; }
 
 static constexpr s32 clamp (s32 val, s32 l, s32 h) {	return min( max(val,l), h ); }
+static constexpr u32 clamp (u32 val, u32 l, u32 h) {	return min( max(val,l), h ); }
+static constexpr s32 clamp (s64 val, s64 l, s64 h) {	return min( max(val,l), h ); }
+static constexpr u32 clamp (u64 val, u64 l, u64 h) {	return min( max(val,l), h ); }
+
 static constexpr f32 clamp (f32 val, f32 l, f32 h) {	return min( max(val,l), h ); }
 static constexpr f64 clamp (f64 val, f64 l, f64 h) {	return min( max(val,l), h ); }
 
