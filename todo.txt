@@ -57,10 +57,12 @@ DONE:
  scrolling working even when resizing the window
  -> cursor should never be able to move outside the window, since i call update_scroll before drawing
  
+#2017.11.17 Fr tag
+ scroll constrain to cursor working
+ 
 TODO
 -FEATURES:
  
- scrolling with mouse and page up/down
  smooth scrolling
  
  shift select

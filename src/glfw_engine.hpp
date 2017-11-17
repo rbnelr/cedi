@@ -7,6 +7,8 @@ static void move_cursor_left ();
 static void move_cursor_right ();
 static void move_cursor_up ();
 static void move_cursor_down ();
+static void pageup_scroll ();
+static void pagedown_scroll ();
 static void mouse_scroll (s32 offs);
 
 static void insert_char (utf32 c);
@@ -17,7 +19,26 @@ static void delete_next_char ();
 
 static void open_file (cstr filename);
 
-//static 
+//
+static f32 dt = 0;
+static bool continuous_drawing = false;
+
+static void set_continuous_drawing (bool state) {
+	if (continuous_drawing != state) {
+		
+		if (state) {
+			// started continuous_drawing
+			dt = 1.0f / 60; // update first frame of smooth scrolling with 60 fps, since there is no real dt to calculate here
+		}
+		
+		printf(">> %s smooth scrolling\n", state ? "started":"stopped");
+	}
+	continuous_drawing = state;
+}
+
+static void draw_if_not_continuous_drawing () {
+	if (!continuous_drawing) draw();
+}
 
 
 struct Rect {
@@ -37,7 +58,7 @@ static void glfw_resize (GLFWwindow* window, int width, int height) {
 
 static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
 	mouse_scroll( (s32)floor(yoffset) );
-	draw();
+	draw_if_not_continuous_drawing();
 }
 
 static bool			_resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
@@ -84,7 +105,7 @@ static void glfw_error_proc (int err, cstr msg) {
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	//printf("glfw_text_proc: '%c' [%x]\n", codepoint, codepoint);
 	insert_char(codepoint);
-	draw();
+	draw_if_not_continuous_drawing();
 }
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
@@ -131,6 +152,15 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 			} break;
 			case GLFW_KEY_DOWN: {
 				move_cursor_down();
+				update = true;
+			} break;
+			
+			case GLFW_KEY_PAGE_UP: {
+				pageup_scroll();
+				update = true;
+			} break;
+			case GLFW_KEY_PAGE_DOWN: {
+				pagedown_scroll();
 				update = true;
 			} break;
 			
@@ -202,11 +232,11 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		opt.tab_spaces = max(opt.tab_spaces +generic_incdec, 1);
 	}
 	
-	if (update) draw();
+	if (update) draw_if_not_continuous_drawing();
 }
 
 static void glfw_refresh (GLFWwindow* wnd) {
-	draw();
+	draw_if_not_continuous_drawing();
 }
 
 static void setup_glfw () {
@@ -258,8 +288,28 @@ int main (int argc, char** argv) {
 	
 	init();
 	
+	f64 t = glfwGetTime();
+	
 	do {
-		glfwWaitEvents();
+		bool was_continuous_drawing = continuous_drawing;
+		if (!was_continuous_drawing) {
+			glfwWaitEvents();
+		} else {
+			glfwPollEvents();
+		}
+		
+		// NOTE: probably shouldn't use dt when event based drawing, since dt is the time since last frame
+		{
+			f64 now = glfwGetTime();
+			dt = now -t;
+			//printf(">>>>>> now %f t %f -> dt %f ms\n", now, t, dt * 1000);
+			t = now;
+		}
+		
+		if (was_continuous_drawing) {
+			draw();
+		}
+		
 	} while (!glfwWindowShouldClose(wnd));
 	
 	glfwDestroyWindow(wnd);

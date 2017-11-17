@@ -121,20 +121,77 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	iv2		sub_wnd_dim;
 	
 	// scrolling
-	indx_t		scroll; // index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
+	indx_t		scroll;	// index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
 	
+	// when smooth scrolling is enabled 'scroll' only defines the target to scroll to, 'smooth_scroll' is the actual scroll position
+	f32			smooth_scroll;
+	
+	
+	f32 pid_prev_error = 0;
+	f32 pid_I = 0;
+	f32 pid_D = 0;
+	
+	void smooth_scroll_update () {
+		#if 0
+		if ( abs((f32)scroll -smooth_scroll) < 0.01f ) {
+			// already at destination
+			smooth_scroll = (f32)scroll;
+			set_continuous_drawing(false);
+			return;
+		}
+		set_continuous_drawing(true); // NOTE: sets dt to some inital value on switch to continuous_drawing
+		
+		f32 vel = ((f32)scroll -smooth_scroll) * 2;
+		//vel += vel > 0 ? 0 : -0;
+		
+		smooth_scroll += vel * dt;
+		
+		printf(">>> p %f v %f   dt %f ms\n", smooth_scroll, vel, dt * 1000);
+		#else
+		if ( abs((f32)scroll -smooth_scroll) < 0.01f && D < 0.3f ) {
+			// already at destination
+			smooth_scroll = (f32)scroll;
+			set_continuous_drawing(false);
+			return;
+		}
+		set_continuous_drawing(true); // NOTE: sets dt to some inital value on switch to continuous_drawing
+		
+		// PID
+		f32 Kp = 0.2f;
+		f32 Ki = 0;
+		f32 Kd = 0;
+		
+		f32 error = (f32)scroll -smooth_scroll;
+		
+		pid_I += error * dt;
+		pid_D = (error -pid_prev_error) / dt;
+		
+		smooth_scroll +=  Kp * error
+						 +Ki * pid_I
+						 +Kd * pid_D;
+		
+		printf(">>> E %8.2f I %8.2f D %8.2f --> %f  dt %8.2f\n", error, pid_I, D, smooth_scroll, dt * 1000);
+		
+		pid_prev_error = error;
+		#endif
+	}
+	
+	indx_t get_max_visible_lines_count () {
+		indx_t count = (indx_t)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height );
+		count = max(count, (indx_t)1);
+		return count;
+	}
 	struct Line_Range {
 		indx_t first, count;
 	};
 	Line_Range get_visible_line_range () {
 		indx_t first = clamp(scroll, (indx_t)0, (indx_t)(lines.size() -1));
 		
-		indx_t count = max( (indx_t)ceil( (f32)sub_wnd_dim.y / (f32)g_font.line_height ), (indx_t)1 );
-		
+		indx_t count = get_max_visible_lines_count();
 		if (scroll < 0) {
 			count += scroll;
-		} else if ((first +count) >= lines.size()) {
-			count -= (first +count) -lines.size();
+		} else if ((first +count) >= (indx_t)lines.size()) {
+			count -= (first +count) -(indx_t)lines.size();
 		}
 		count = max(count, (indx_t)1);
 		
@@ -151,16 +208,20 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				cursor.c = lines[cursor.l].get_max_cursor_c();
 			}
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	void move_cursor_right () {
 		if (cursor.c < lines[cursor.l].get_max_cursor_c()) {
 			++cursor.c;
 		} else {
-			if (cursor.l < (lines.size() -1)) {
+			if (cursor.l < (indx_t)(lines.size() -1)) {
 				++cursor.l;
 				cursor.c = 0;
 			}
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	
 	void move_cursor_up () {
@@ -168,17 +229,23 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			--cursor.l;
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	void move_cursor_down () {
-		if (cursor.l < (lines.size() -1)) {
+		if (cursor.l < (indx_t)(lines.size() -1)) {
 			++cursor.l;
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	
 	void insert_char (utf32 c) {
 		lines[cursor.l].text.insert(lines[cursor.l].text.begin() +cursor.c, c);
 		++cursor.c;
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	void insert_tab () {
 		insert_char(U'\t');
@@ -200,11 +267,13 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		// move cursor to beginning of new line
 		++cursor.l;
 		cursor.c = 0;
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	
 	void newline_delete_merge_lines (indx_t newline_l) {
 		// marge two lines by deleting newline
-		dbg_assert(newline_l < (lines.size() -1)); // cant merge last line with nothing
+		dbg_assert(newline_l < (indx_t)(lines.size() -1)); // cant merge last line with nothing
 		
 		auto& newl = lines[newline_l];
 		auto& next = lines[newline_l +1];
@@ -233,16 +302,20 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				newline_delete_merge_lines(cursor.l -1);
 			}
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	void delete_next_char () {
 		if (cursor.c < lines[cursor.l].get_newlineless_len()) {
 			lines[cursor.l].text.erase( lines[cursor.l].text.begin() +cursor.c );
 		} else {
-			if (cursor.l < (lines.size() -1)) {
+			if (cursor.l < (indx_t)(lines.size() -1)) {
 				// marge current line with next line
 				newline_delete_merge_lines(cursor.l);
 			}
 		}
+		
+		constrain_scroll_to_make_cursor_visible();
 	}
 	
 	void open_file (cstr filename) {
@@ -255,17 +328,32 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		}
 	}
 	
-	void cursor_move_scroll () {
-		
+	void constrain_scroll_to_buf () {
+		auto count = get_max_visible_lines_count();
+		scroll = clamp(scroll, 0 -max(count -2, (indx_t)0), (indx_t)(lines.size() -1));
+	}
+	void constrain_scroll_to_make_cursor_visible () {
+		auto count = get_max_visible_lines_count();
+		scroll = clamp(scroll, cursor.l -max(count -2, (indx_t)0), cursor.l);
 	}
 	void pageup_scroll () {
+		scroll -= max(get_max_visible_lines_count() -2, (indx_t)1);
 		
+		constrain_scroll_to_buf();
 	}
 	void pagedown_scroll () {
+		scroll += max(get_max_visible_lines_count() -2, (indx_t)1);
 		
+		constrain_scroll_to_buf();
 	}
 	void mouse_scroll (s32 diff) {
 		scroll -= diff;
+		constrain_scroll_to_buf();
+	}
+	
+	void resize_sub_wnd (iv2 dim) {
+		sub_wnd_dim = dim;
+		constrain_scroll_to_make_cursor_visible();
 	}
 	
 	//
@@ -276,6 +364,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cursor.c = 0;
 		
 		scroll = 0;
+		smooth_scroll = 0;
 		
 		//open_file("src/cedi.cpp");
 		open_file("build.bat");
@@ -306,6 +395,8 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cursor.c = 0;
 		
 		scroll = 0;
+		smooth_scroll = 0;
+		
 	}
 	
 	struct Cursor_Rect {
@@ -315,12 +406,15 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	Cursor_Rect generate_layout () {
 		
+		smooth_scroll_update();
+		
 		vbo_char_vert_data.clear();
 		
 		auto vis_lines = get_visible_line_range();
 		
 		f32	pos_x_px;
-		f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin +(f32)((s64)g_font.line_height * -scroll);
+		//f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin +(f32)((s64)g_font.line_height * -scroll);
+		f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin +((f32)g_font.line_height * -smooth_scroll);
 		
 		for (indx_t line_i=0; line_i<(indx_t)lines.size(); ++line_i) {
 			auto& l = lines[line_i];
@@ -438,7 +532,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		f32 x = lines[cursor.l].chars_x_px[ cursor.c ];
 		
 		f32 w = 0;
-		if (cursor.c < (lines[cursor.l].chars_x_px.size() -1)) {
+		if (cursor.c < (indx_t)(lines[cursor.l].chars_x_px.size() -1)) {
 			w = lines[cursor.l].chars_x_px[ cursor.c +1 ] -x; // could be imaginary last character
 		}
 		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
@@ -453,28 +547,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 };
 
 Text_Buffer g_buf; // init to zero/null
-
-#define TEST U"test Tst\n123\nかきくけこ　ゴゴごご\nあべし\nABeShi\n"
-#define C_PROG \
-	U"\n" \
-	U"#include <stdio.h>\n" \
-	U"\n" \
-	U"int main (int argc, char** argv) {\n" \
-	U"	\n" \
-	U"	printf(\"Hello World!\\n\");\n" \
-	U"	\n" \
-	U"	return 0;\n" \
-	U"}\n"
-#define C_PROG2 \
-	U"\n" \
-	U"#include <stdio.h>\r\n" \
-	U"int main (int argc, char** argv) {\n" \
-	U"\0	printf(\"Hello World!\\n\");\r\n" \
-	U"	char ああああああああああああ = 'A';\r\n" \
-	U" 	return 0;\n" \
-	U"}\r" \
-	U"\0blah"
-#define TEST2 U"static void insert_char (utf32 c) {\n"
 
 static Shader_Text					shad_text;
 static Shader_Fullscreen_Tex_Copy	shad_text_copy;
@@ -527,17 +599,14 @@ static void init  () {
 
 static void resize_wnd (iv2 dim) {
 	wnd_dim = dim;
-	g_buf.sub_wnd_dim = dim;
+	g_buf.resize_sub_wnd(dim);
 	
 	draw();
 }
 
-f64 last_t;
 static void draw () {
 	
-	auto t = glfwGetTime();
-	printf(">>> frame %f\n", (t -last_t) * 1000);
-	last_t = t;
+	//printf(">>> frame %f ms\n", dt * 1000);
 	
 	auto cursor_rect = g_buf.generate_layout();
 	
@@ -600,6 +669,8 @@ static void move_cursor_left () {	g_buf.move_cursor_left();	}
 static void move_cursor_right () {	g_buf.move_cursor_right();	}
 static void move_cursor_up () {		g_buf.move_cursor_up();		}
 static void move_cursor_down () {	g_buf.move_cursor_down();	}
+static void pageup_scroll () {		g_buf.pageup_scroll();		}
+static void pagedown_scroll () {	g_buf.pagedown_scroll();	}
 static void mouse_scroll (s32 diff) {	g_buf.mouse_scroll(diff);	}
 
 static void insert_char (utf32 c) {	g_buf.insert_char(c);		}
