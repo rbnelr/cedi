@@ -98,101 +98,62 @@ static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	draw("glfw_text_proc()");
 }
 
-#include "key_mapping.hpp"
-
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
-	
-	#if 0
-	bool update = false;
 	
 	//cstr name = glfwGetKeyName(key, scancode);
 	//printf("Button %s: %d\n", name ? name : "<null>", action);
 	
 	s32 generic_incdec = 0;
 	
-	if (action != GLFW_RELEASE) { // pressed or repeated ...
+	bool input_mapped = false;
+	
+	if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+		input_mapped = true;
 		
 		switch (key) {
-			case GLFW_KEY_BACKSPACE: {
-				delete_prev();
-				update = true;
-			} break;
-			case GLFW_KEY_DELETE: {
-				delete_next();
-				update = true;
-			} break;
+			case GLFW_KEY_LEFT:			move_cursor_left();		break;
+			case GLFW_KEY_RIGHT:		move_cursor_right();	break;
+			case GLFW_KEY_UP:			move_cursor_up();		break;
+			case GLFW_KEY_DOWN:			move_cursor_down();		break;
+			
+			case GLFW_KEY_PAGE_UP:		scroll_page_up();		break;
+			case GLFW_KEY_PAGE_DOWN:	scroll_page_down();		break;
+			
 			case GLFW_KEY_ENTER:
-			case GLFW_KEY_KP_ENTER: {
-				insert_enter();
-				update = true;
-			} break;
-			case GLFW_KEY_TAB: {
-				insert_tab();
-				update = true;
-			} break;
-			
-			case GLFW_KEY_LEFT: {
-				move_cursor_left();
-				update = true;
-			} break;
-			case GLFW_KEY_RIGHT: {
-				move_cursor_right();
-				update = true;
-			} break;
-			case GLFW_KEY_UP: {
-				move_cursor_up();
-				update = true;
-			} break;
-			case GLFW_KEY_DOWN: {
-				move_cursor_down();
-				update = true;
-			} break;
-			
-			case GLFW_KEY_PAGE_UP: {
-				scroll_page_up();
-				update = true;
-			} break;
-			case GLFW_KEY_PAGE_DOWN: {
-				scroll_page_down();
-				update = true;
-			} break;
+			case GLFW_KEY_KP_ENTER:		insert_enter();			break;
+			case GLFW_KEY_TAB:			insert_tab();			break;
+			case GLFW_KEY_BACKSPACE:	delete_prev();			break;
+			case GLFW_KEY_DELETE:		delete_next();			break;
 			
 			// generic decrease
 			case GLFW_KEY_MINUS:
-			case GLFW_KEY_KP_SUBTRACT : {
-				generic_incdec = -1;
-				update = true;
-			} break;
+			case GLFW_KEY_KP_SUBTRACT:	generic_incdec = -1;	break;
 			// generic increase
 			case GLFW_KEY_EQUAL: // pseudo '+' key, this would be the '+' key when shift is pressed
-			case GLFW_KEY_KP_ADD: {
-				generic_incdec = +1;
-				update = true;
-			} break;
+			case GLFW_KEY_KP_ADD:		generic_incdec = +1;	break;
+			
+			default: input_mapped = false;
 		}
+		
 	}
 	
-	if (action == GLFW_PRESS) { // pressed ...
+	if (!input_mapped) {
+		input_mapped = true;
 		
 		switch (key) {
-			case GLFW_KEY_F11: { // ... key
-				toggle_fullscreen();
-			} break;
-		}
-		
-		if (mods & GLFW_MOD_ALT) { // ... ALT+key
-			switch (key) {
-				case GLFW_KEY_N: {
-					opt.draw_whitespace = !opt.draw_whitespace;
-					update = true;
+			case GLFW_KEY_F11:
+				if (action == GLFW_PRESS) {
+					toggle_fullscreen();
 				} break;
-			}
-		}
-		
-		if (mods & GLFW_MOD_CONTROL) { // ... ALT+key
-			switch (key) {
-				case GLFW_KEY_O: {
+			
+			case GLFW_KEY_N:
+				if (action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
+					opt.draw_whitespace = !opt.draw_whitespace;
+				} break;
+			
+			case GLFW_KEY_O:
+				if (action == GLFW_PRESS && (mods & GLFW_MOD_CONTROL)) {
 					printf("Open File menu: ");
 					
 					_filename_buf[0] = '\0';
@@ -204,21 +165,14 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 					}
 					
 					open_file(_filename_buf);
-					update = true;
 				} break;
-			}
-		}
-	}
-	
-	if (action != GLFW_REPEAT) { // pressed or released ...
-		
-		if (mods & GLFW_MOD_ALT) { // ... ALT+key
-			switch (key) {
-				case GLFW_KEY_T: {
+			
+			case GLFW_KEY_T:
+				if ((action == GLFW_PRESS || action == GLFW_RELEASE) && (mods & GLFW_MOD_ALT)) {
 					_resizing_tab_spaces = action == GLFW_PRESS;
-					update = true;
 				} break;
-			}
+			
+			default: input_mapped = false;
 		}
 	}
 	
@@ -226,30 +180,7 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		opt.tab_spaces = max(opt.tab_spaces +generic_incdec, 1);
 	}
 	
-	if (update) draw("glfw_key_proc()");
-	#else
-	
-	bool needs_draw = true;
-	switch (map_event_to_cmd(key, action, mods)) {
-		case CMD_MOVE_CURSOR_LEFT:	move_cursor_left();		break;
-		case CMD_MOVE_CURSOR_RIGHT:	move_cursor_right();	break;
-		case CMD_MOVE_CURSOR_UP:	move_cursor_up();		break;
-		case CMD_MOVE_CURSOR_DOWN:	move_cursor_down();		break;
-		
-		case CMD_SCROLL_PAGE_UP:	scroll_page_up();		break;
-		case CMD_SCROLL_PAGE_DOWN:	scroll_page_down();		break;
-		
-		case CMD_INSERT_ENTER:		insert_enter();			break;
-		case CMD_INSERT_TAB:		insert_tab();			break;
-		
-		case CMD_DELETE_PREV:		delete_prev();			break;
-		case CMD_DELETE_NEXT:		delete_next();			break;
-				
-		default:	needs_draw = false;
-	}
-	
-	if (needs_draw) draw("glfw_key_proc()");
-	#endif
+	if (input_mapped) draw("glfw_key_proc()");
 }
 
 static void glfw_refresh (GLFWwindow* wnd) {

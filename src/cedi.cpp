@@ -52,7 +52,7 @@ struct Options {
 	
 	f32		tex_buffer_margin =				4;
 	
-	f32		overscroll_fraction =			1.0f;
+	f32		overscroll_fraction =			0.4f;
 };
 
 static Options opt;
