@@ -51,11 +51,18 @@ struct Options {
 	f32		min_cursor_w_px =				6;
 	
 	f32		tex_buffer_margin =				4;
+	
+	f32		overscroll_fraction =			1.0f;
 };
 
 static Options opt;
 
 static iv2 wnd_dim; // dimensions of windows window in px
+
+static f64 t_draw_end =		QNANd; // DBG: invalid values for debugging
+static f32 dt =				QNAN; // DBG: invalid values for debugging
+
+static f32 avg_dt =			1.0f/60; // to get reasonable dt for first frame of smooth scrolling
 
 #include "glfw_engine.hpp"
 #include "font.hpp"
@@ -126,54 +133,37 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	// when smooth scrolling is enabled 'scroll' only defines the target to scroll to, 'smooth_scroll' is the actual scroll position
 	f32			smooth_scroll;
 	
-	
-	f32 pid_prev_error = 0;
-	f32 pid_I = 0;
-	f32 pid_D = 0;
-	
-	void smooth_scroll_update () {
-		#if 0
+	bool smooth_scroll_update () {
 		if ( abs((f32)scroll -smooth_scroll) < 0.01f ) {
 			// already at destination
 			smooth_scroll = (f32)scroll;
 			set_continuous_drawing(false);
-			return;
+			return false;
 		}
-		set_continuous_drawing(true); // NOTE: sets dt to some inital value on switch to continuous_drawing
 		
-		f32 vel = ((f32)scroll -smooth_scroll) * 2;
-		//vel += vel > 0 ? 0 : -0;
+		bool started_smooth_scrolling = !continuous_drawing;
+		if (started_smooth_scrolling) {
+			dt = avg_dt; // reasonable dt for first frame of smooth scrolling, since actual dt is based on frames before continuous_drawing
+		}
+		set_continuous_drawing(true);
+		
+		#if 0
+		f32 x0 = 5; // constant velocity
+		f32 x1 = 1.0f; // velocity proportional to distance
+		
+		f32 error = ((f32)scroll -smooth_scroll);
+		f32 vel = error * x1;
+		vel += error > 0 ? +x0 : -x0;
 		
 		smooth_scroll += vel * dt;
 		
 		printf(">>> p %f v %f   dt %f ms\n", smooth_scroll, vel, dt * 1000);
 		#else
-		if ( abs((f32)scroll -smooth_scroll) < 0.01f && D < 0.3f ) {
-			// already at destination
-			smooth_scroll = (f32)scroll;
-			set_continuous_drawing(false);
-			return;
-		}
-		set_continuous_drawing(true); // NOTE: sets dt to some inital value on switch to continuous_drawing
-		
-		// PID
-		f32 Kp = 0.2f;
-		f32 Ki = 0;
-		f32 Kd = 0;
-		
-		f32 error = (f32)scroll -smooth_scroll;
-		
-		pid_I += error * dt;
-		pid_D = (error -pid_prev_error) / dt;
-		
-		smooth_scroll +=  Kp * error
-						 +Ki * pid_I
-						 +Kd * pid_D;
-		
-		printf(">>> E %8.2f I %8.2f D %8.2f --> %f  dt %8.2f\n", error, pid_I, D, smooth_scroll, dt * 1000);
-		
-		pid_prev_error = error;
+		smooth_scroll = lerp(smooth_scroll, (f32)scroll, 0.4f);
 		#endif
+		
+		avg_dt = lerp(avg_dt, dt, 0.1f);
+		return started_smooth_scrolling;
 	}
 	
 	indx_t get_max_visible_lines_count () {
@@ -209,7 +199,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	void move_cursor_right () {
 		if (cursor.c < lines[cursor.l].get_max_cursor_c()) {
@@ -221,7 +211,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	
 	void move_cursor_up () {
@@ -230,7 +220,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	void move_cursor_down () {
 		if (cursor.l < (indx_t)(lines.size() -1)) {
@@ -238,14 +228,14 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	
 	void insert_char (utf32 c) {
 		lines[cursor.l].text.insert(lines[cursor.l].text.begin() +cursor.c, c);
 		++cursor.c;
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	void insert_tab () {
 		insert_char(U'\t');
@@ -268,7 +258,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		++cursor.l;
 		cursor.c = 0;
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	
 	void newline_delete_merge_lines (indx_t newline_l) {
@@ -303,7 +293,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	void delete_next_char () {
 		if (cursor.c < lines[cursor.l].get_newlineless_len()) {
@@ -315,7 +305,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	
 	void open_file (cstr filename) {
@@ -328,23 +318,32 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		}
 	}
 	
-	void constrain_scroll_to_buf () {
+	void constrain_scroll_to_overscroll_setting () {
 		auto count = get_max_visible_lines_count();
-		scroll = clamp(scroll, 0 -max(count -2, (indx_t)0), (indx_t)(lines.size() -1));
+		
+		indx_t ov = (indx_t)( lerp(count -1, (indx_t)1, opt.overscroll_fraction) +0.5f );
+		
+		scroll = clamp(scroll, 0 -max(count -1 -ov, (indx_t)0), (indx_t)(lines.size() -ov));
 	}
-	void constrain_scroll_to_make_cursor_visible () {
+	void constrain_scroll_to_buf () {
+		indx_t ov = 1;
+		
+		auto count = get_max_visible_lines_count();
+		scroll = clamp(scroll, 0 -max(count -1 -ov, (indx_t)0), (indx_t)(lines.size() -ov));
+	}
+	void constrain_scroll_to_cursor () {
 		auto count = get_max_visible_lines_count();
 		scroll = clamp(scroll, cursor.l -max(count -2, (indx_t)0), cursor.l);
 	}
 	void pageup_scroll () {
 		scroll -= max(get_max_visible_lines_count() -2, (indx_t)1);
 		
-		constrain_scroll_to_buf();
+		constrain_scroll_to_overscroll_setting();
 	}
 	void pagedown_scroll () {
 		scroll += max(get_max_visible_lines_count() -2, (indx_t)1);
 		
-		constrain_scroll_to_buf();
+		constrain_scroll_to_overscroll_setting();
 	}
 	void mouse_scroll (s32 diff) {
 		scroll -= diff;
@@ -353,7 +352,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	void resize_sub_wnd (iv2 dim) {
 		sub_wnd_dim = dim;
-		constrain_scroll_to_make_cursor_visible();
+		constrain_scroll_to_cursor();
 	}
 	
 	//
@@ -405,8 +404,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	};
 	
 	Cursor_Rect generate_layout () {
-		
-		smooth_scroll_update();
 		
 		vbo_char_vert_data.clear();
 		
@@ -594,19 +591,21 @@ static void init  () {
 		glfwSetWindowTitle(wnd, u8"cedi");
 	}
 	
-	draw();
+	draw("init()");
 }
 
 static void resize_wnd (iv2 dim) {
 	wnd_dim = dim;
 	g_buf.resize_sub_wnd(dim);
-	
-	draw();
 }
 
-static void draw () {
+static void draw (cstr reason) { // DBG: reason we drew a new frame
 	
-	//printf(">>> frame %f ms\n", dt * 1000);
+	f64 t_draw_start = glfwGetTime();
+	
+	printf("draw [%14s] dt %.1f ms\n", reason, dt * 1000);
+	
+	bool started_smooth_scrolling = g_buf.smooth_scroll_update();
 	
 	auto cursor_rect = g_buf.generate_layout();
 	
@@ -662,21 +661,32 @@ static void draw () {
 	}
 	
 	platform_present_frame();
+	
+	{
+		f64 now = glfwGetTime();
+		if (started_smooth_scrolling) {
+			dt = now -t_draw_start; // use this for 2nd frame of smooth scrolling, since old t_draw_end was before continuous_drawing
+		} else {
+			dt = now -t_draw_end;
+		}
+		//printf(">>>>>> now %f t %f -> dt %f ms\n", now, t, dt * 1000);
+		t_draw_end = now;
+	}
 }
 
 // input events
-static void move_cursor_left () {	g_buf.move_cursor_left();	}
-static void move_cursor_right () {	g_buf.move_cursor_right();	}
-static void move_cursor_up () {		g_buf.move_cursor_up();		}
-static void move_cursor_down () {	g_buf.move_cursor_down();	}
-static void pageup_scroll () {		g_buf.pageup_scroll();		}
-static void pagedown_scroll () {	g_buf.pagedown_scroll();	}
+static void move_cursor_left () {		g_buf.move_cursor_left();	}
+static void move_cursor_right () {		g_buf.move_cursor_right();	}
+static void move_cursor_up () {			g_buf.move_cursor_up();		}
+static void move_cursor_down () {		g_buf.move_cursor_down();	}
+static void pageup_scroll () {			g_buf.pageup_scroll();		}
+static void pagedown_scroll () {		g_buf.pagedown_scroll();	}
 static void mouse_scroll (s32 diff) {	g_buf.mouse_scroll(diff);	}
 
-static void insert_char (utf32 c) {	g_buf.insert_char(c);		}
-static void insert_tab () {			g_buf.insert_tab();			}
-static void insert_newline () {		g_buf.insert_newline();		}
-static void delete_prev_char () {	g_buf.delete_prev_char();	}
-static void delete_next_char () {	g_buf.delete_next_char();	}
+static void insert_char (utf32 c) {		g_buf.insert_char(c);		}
+static void insert_tab () {				g_buf.insert_tab();			}
+static void insert_newline () {			g_buf.insert_newline();		}
+static void delete_prev_char () {		g_buf.delete_prev_char();	}
+static void delete_next_char () {		g_buf.delete_next_char();	}
 
-static void open_file (cstr filename) { g_buf.open_file(filename); }
+static void open_file (cstr filename) {	g_buf.open_file(filename);	}

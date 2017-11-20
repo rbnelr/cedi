@@ -59,11 +59,20 @@ DONE:
  
 #2017.11.17 Fr tag
  scroll constrain to cursor working
+
+ simple smooth scrolling with PID working
+ 
+ probably don't want a generic PID, rather my own formula
+ -> ditched PID 
+ 
+#2017.11.20 Mo tag
+ debugged second frame of smooth scrolling dt
+ -> hacky way of implementing it, special case dt on first two frames, but works well
+ 
+ overscroll_fraction option added
  
 TODO
 -FEATURES:
- 
- smooth scrolling
  
  shift select
  -> highlight selection
@@ -71,6 +80,9 @@ TODO
  -> select copy and paste
  -> windows copy/paste clipboard would be useful
  -> line swap hotkey (CTRL-T in notepad++)
+ 
+ try to compile glfw as dll (to get debug info)
+ -maybe try to make static linking work
  
  reimplement some kind of cursor sticking (maybe my new idea?)
  

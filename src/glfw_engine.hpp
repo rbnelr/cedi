@@ -1,7 +1,7 @@
 
 static void init ();
 static void resize_wnd (iv2 dim);
-static void draw ();
+static void draw (cstr reason="<unknown>");
 
 static void move_cursor_left ();
 static void move_cursor_right ();
@@ -20,26 +20,14 @@ static void delete_next_char ();
 static void open_file (cstr filename);
 
 //
-static f32 dt = 0;
 static bool continuous_drawing = false;
 
 static void set_continuous_drawing (bool state) {
 	if (continuous_drawing != state) {
-		
-		if (state) {
-			// started continuous_drawing
-			dt = 1.0f / 60; // update first frame of smooth scrolling with 60 fps, since there is no real dt to calculate here
-		}
-		
 		printf(">> %s smooth scrolling\n", state ? "started":"stopped");
 	}
 	continuous_drawing = state;
 }
-
-static void draw_if_not_continuous_drawing () {
-	if (!continuous_drawing) draw();
-}
-
 
 struct Rect {
 	iv2 pos;
@@ -54,14 +42,16 @@ static Rect			_restore_wnd_rect;
 
 static void glfw_resize (GLFWwindow* window, int width, int height) {
 	resize_wnd( max(iv2(width,height), iv2(1)) );
+	//printf(">>>> %d, %d\n", width, height);
+	draw("glfw_resize()");
 }
 
 static void glfw_scroll_proc (GLFWwindow* window, f64 xoffset, f64 yoffset) {
 	mouse_scroll( (s32)floor(yoffset) );
-	draw_if_not_continuous_drawing();
+	draw("glfw_scroll_proc()");
 }
 
-static bool			_resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
+static bool	_resizing_tab_spaces; // needed state for CTRL+T+(+/-) control
 
 static char _filename_buf[512];
 
@@ -78,7 +68,7 @@ static void toggle_fullscreen () {
 	}
 	fullscreen = !fullscreen;
 	
-	glfwSwapInterval(0); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
+	glfwSwapInterval(1); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
 	
 }
 static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
@@ -105,7 +95,7 @@ static void glfw_error_proc (int err, cstr msg) {
 static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	//printf("glfw_text_proc: '%c' [%x]\n", codepoint, codepoint);
 	insert_char(codepoint);
-	draw_if_not_continuous_drawing();
+	draw("glfw_text_proc()");
 }
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
@@ -232,11 +222,11 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		opt.tab_spaces = max(opt.tab_spaces +generic_incdec, 1);
 	}
 	
-	if (update) draw_if_not_continuous_drawing();
+	if (update) draw("glfw_key_proc()");
 }
 
 static void glfw_refresh (GLFWwindow* wnd) {
-	draw_if_not_continuous_drawing();
+	draw("glfw_refresh()");
 }
 
 static void setup_glfw () {
@@ -288,26 +278,12 @@ int main (int argc, char** argv) {
 	
 	init();
 	
-	f64 t = glfwGetTime();
-	
 	do {
-		bool was_continuous_drawing = continuous_drawing;
-		if (!was_continuous_drawing) {
+		if (!continuous_drawing) {
 			glfwWaitEvents();
 		} else {
-			glfwPollEvents();
-		}
-		
-		// NOTE: probably shouldn't use dt when event based drawing, since dt is the time since last frame
-		{
-			f64 now = glfwGetTime();
-			dt = now -t;
-			//printf(">>>>>> now %f t %f -> dt %f ms\n", now, t, dt * 1000);
-			t = now;
-		}
-		
-		if (was_continuous_drawing) {
-			draw();
+			glfwPollEvents(); // NOTE: continuous_drawing not working when resizing, since PollEvents blocks and only calls glfw_resize when resized by at least one pixel
+			draw("continuous_drawing");
 		}
 		
 	} while (!glfwWindowShouldClose(wnd));

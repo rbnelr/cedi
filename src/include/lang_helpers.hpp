@@ -30,14 +30,12 @@
 	#define NOINLINE						__declspec(noinline)
 	#define BUILTIN_F32_INF					((float)(1e+300 * 1e+300))
 	#define BUILTIN_F64_INF					(1e+300 * 1e+300)
-	#define BUILTIN_F32_QNAN				__builtin_nanf("0")
-	#define BUILTIN_F64_QNAN				__builtin_nan("0")
 	#define DBGBREAK						__debugbreak()
 	
 	#define F32_INF							((float)(1e+300 * 1e+300))
 	#define F64_INF							(1e+300 * 1e+300)
-	#define F32_QNAN						__builtin_nanf("0")
-	#define F64_QNAN						__builtin_nan("0")
+	#define F32_QNAN						(0.0f/0.0f)
+	#define F64_QNAN						(0.0/0.0)
 	
 #elif RZ_COMP == RZ_COMP_LLVM
 	#define FORCEINLINE						__attribute__((always_inline)) inline
