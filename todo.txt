@@ -71,8 +71,13 @@ DONE:
  
  overscroll_fraction option added
  
+ shift select
+ -> highlight selection
+ 
 TODO
 -FEATURES:
+ 
+ reimplement page up/down clamping to user overscroll_fraction option, but have overscrolling save the previous scroll state so that when you scroll down again you always end up in the same place as before (scroll line 100 -> 0 -> -30 -> 0 instead of 100 -> 0 -> -30 -> 70)
  
  shift select
  -> highlight selection

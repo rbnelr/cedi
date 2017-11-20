@@ -41,7 +41,8 @@ struct Options {
 	v3		col_draw_whitespace =			col_text * 0.2f;
 	v3		col_line_numbers =				col_text * 0.4f;
 	v3		col_line_numbers_bar =			col_text * 0.2f;
-	v3		col_cursor =					srgb(147,199,99);
+	v4		col_cursor =					v4(srgb(147,199,99), 0.8f);
+	v4		col_selection =					v4(1,1,1, 0.8f);
 	
 	bool	draw_whitespace =				true;
 	
@@ -123,11 +124,20 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	struct Cursor {
 		indx_t	l;
 		indx_t	c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
+		
+		bool operator== (Cursor cr r) const { return l == r.l && c == r.c; }
+		NOINLINE bool operator!= (Cursor cr r) const { return l != r.l || c != r.c; }
 	};
 	
 	Cursor		cursor;
 	Cursor		select_cursor;
-	bool		selecting;
+	
+	enum select_e {
+		SEL_NOT_SELECTING=0,
+		SEL_SELECTING,
+		SEL_KEY_RELEASED
+	};
+	select_e	selecting;
 	
 	iv2			sub_wnd_dim;
 	
@@ -142,7 +152,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		cursor.c =			0;
 		select_cursor.l =	0;
 		select_cursor.c =	0;
-		selecting =			true;
+		selecting =			SEL_NOT_SELECTING;
 		
 		scroll =			0;
 		smooth_scroll =		0;
@@ -215,7 +225,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	void move_cursor_right () {
 		if (cursor.c < lines[cursor.l].get_max_cursor_c()) {
@@ -227,7 +237,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	
 	void move_cursor_up () {
@@ -236,7 +246,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	void move_cursor_down () {
 		if (cursor.l < (indx_t)(lines.size() -1)) {
@@ -244,14 +254,14 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			cursor.c = min(lines[cursor.l].get_max_cursor_c(), cursor.c);
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	
 	void insert_char (utf32 c) {
 		lines[cursor.l].text.insert(lines[cursor.l].text.begin() +cursor.c, c);
 		++cursor.c;
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	void insert_tab () {
 		insert_char(U'\t');
@@ -274,7 +284,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		++cursor.l;
 		cursor.c = 0;
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	
 	void newline_delete_merge_lines (indx_t newline_l) {
@@ -309,7 +319,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	void delete_next () {
 		if (cursor.c < lines[cursor.l].get_newlineless_len()) {
@@ -321,14 +331,21 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		constrain_scroll_to_cursor();
+		cursor_move_reset();
 	}
 	
 	void start_select () {
+		dbg_assert(selecting == SEL_NOT_SELECTING || selecting == SEL_KEY_RELEASED);
 		select_cursor = cursor;
+		selecting = SEL_SELECTING;
 	}
 	void stop_select () {
-		
+		selecting = SEL_KEY_RELEASED;
+	}
+	
+	void cursor_move_reset () { // stop selecting, scroll to make cursor visible if cursor outside view
+		if (selecting == SEL_KEY_RELEASED) selecting = SEL_NOT_SELECTING;
+		constrain_scroll_to_cursor();
 	}
 	
 	void open_file (cstr filename) {
@@ -431,19 +448,19 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		Cursor* cursor_high;
 		{
 			if (		cursor.l == select_cursor.l ) {
-				if (cursor.c <= select_cursor.c) {
-					cursor_low =	&cursor;
-					cursor_high =	&select_cursor;
-				} else {
+				if (cursor.c >= select_cursor.c) {
 					cursor_low =	&select_cursor;
 					cursor_high =	&cursor;
+				} else {
+					cursor_low =	&cursor;
+					cursor_high =	&select_cursor;
 				}
-			} else if (	cursor.l < select_cursor.l ) {
-				cursor_low =		&cursor;
-				cursor_high =		&select_cursor;
-			} else /* (	cursor.l > select_cursor.l */ {
+			} else if (	cursor.l > select_cursor.l ) {
 				cursor_low =		&select_cursor;
 				cursor_high =		&cursor;
+			} else /* (	cursor.l < select_cursor.l */ {
+				cursor_low =		&cursor;
+				cursor_high =		&select_cursor;
 			}
 			
 			//printf(">> select %llu:%llu - %llu:%llu\n", cursor_low->l,cursor_low->c, cursor_high->l,cursor_high->c);
@@ -469,6 +486,13 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			};
 			
 			{ // emit line numbers
+				v3 col = opt.col_line_numbers;
+				
+				//if (selecting && line_i >= cursor_low->l && line_i <= cursor_high->l)
+				//	col = opt.col_selection.xyz();
+				if (line_i == cursor.l)
+					col = opt.col_cursor.xyz();
+				
 				u32 digit_count = 0; // max needed digits to diplay line numbers
 				{
 					dbg_assert(lines.size() > 0);
@@ -491,7 +515,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				num_len = max(num_len, (u32)1);
 				
 				for (u32 i=digit_count; i!=0;) { --i;
-					emit_glyph(i < num_len ? U'0' +buf[i] : U' ', opt.col_line_numbers);
+					emit_glyph(i < num_len ? U'0' +buf[i] : U' ', col);
 				}
 				emit_glyph(U'|', opt.col_line_numbers_bar);
 			}
@@ -570,7 +594,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				u32 max_c = l.chars_x_px.size() -1;
 				
 				if (line_i == cursor_low->l)		c = cursor_low->c;
-				if (line_i == cursor_high->l)	max_c = cursor_high->c +1;
+				if (line_i == cursor_high->l)	max_c = cursor_high->c;
 				
 				f32 x = l.chars_x_px[c];
 				f32 w = l.chars_x_px[min((size_t)max_c, l.chars_x_px.size() -1)] -x;
@@ -597,9 +621,14 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				w = lines[cursor.l].chars_x_px[ cursor.c +1 ] -x; // could be imaginary last character
 			}
 			// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+			
 			w *= opt.min_cursor_w_percent_of_char;
 			
 			w = max(w, opt.min_cursor_w_px);
+			
+			if (selecting && *cursor_high != *cursor_low) {
+				w = opt.min_cursor_w_px;
+			}
 			
 			cursor_box = {	v2(x -g_font.border_left, lines[cursor.l].pos_y -g_font.line_height +g_font.descent_plus_gap),
 							v2(w, g_font.line_height) };
@@ -662,8 +691,7 @@ static void init  () {
 	fb_text				.init();
 	
 	//g_buf.open_file("src/cedi.cpp");
-	//g_buf.open_file("build.bat");
-	g_buf.open_file("test.cpp");
+	g_buf.open_file("build.bat");
 	
 	{ // show window
 		auto mr = get_monitor_rect();
@@ -731,15 +759,14 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 		shad_cursor_pass.col_highlighted.set( opt.col_text_highlighted );
 		
 		for (auto box : g_buf.selection_boxes) {
-			v3 col = v3(0.8f);
 			
 			std::initializer_list<VBO_Cursor_Pass::V> data = {
-				{ box.pos +box.dim * v2(1,0), v4(col, 1) },
-				{ box.pos +box.dim * v2(1,1), v4(col, 1) },
-				{ box.pos +box.dim * v2(0,0), v4(col, 1) },
-				{ box.pos +box.dim * v2(0,0), v4(col, 1) },
-				{ box.pos +box.dim * v2(1,1), v4(col, 1) },
-				{ box.pos +box.dim * v2(0,1), v4(col, 1) },
+				{ box.pos +box.dim * v2(1,0), opt.col_selection },
+				{ box.pos +box.dim * v2(1,1), opt.col_selection },
+				{ box.pos +box.dim * v2(0,0), opt.col_selection },
+				{ box.pos +box.dim * v2(0,0), opt.col_selection },
+				{ box.pos +box.dim * v2(1,1), opt.col_selection },
+				{ box.pos +box.dim * v2(0,1), opt.col_selection },
 			};
 			
 			vbo_cursor.upload(data);
@@ -752,12 +779,12 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 			auto& r = g_buf.cursor_box;
 			
 			std::initializer_list<VBO_Cursor_Pass::V> data = {
-				{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor, 0.8f) },
-				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 0.8f) },
-				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 0.8f) },
-				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 0.8f) },
-				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 0.8f) },
-				{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(1,0), opt.col_cursor },
+				{ r.pos +r.dim * v2(1,1), opt.col_cursor },
+				{ r.pos +r.dim * v2(0,0), opt.col_cursor },
+				{ r.pos +r.dim * v2(0,0), opt.col_cursor },
+				{ r.pos +r.dim * v2(1,1), opt.col_cursor },
+				{ r.pos +r.dim * v2(0,1), opt.col_cursor },
 			};
 			
 			vbo_cursor.upload(data);
