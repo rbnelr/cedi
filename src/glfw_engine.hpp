@@ -1,26 +1,5 @@
 
-static void init ();
-static void resize_wnd (iv2 dim);
-static void draw (cstr reason="<unknown>");
-
-static void move_cursor_left ();
-static void move_cursor_right ();
-static void move_cursor_up ();
-static void move_cursor_down ();
-static void scroll_page_up ();
-static void scroll_page_down ();
-static void mouse_scroll (s32 offs);
-
-static void insert_char (utf32 c);
-static void insert_tab ();
-static void insert_enter ();
-static void delete_prev ();
-static void delete_next ();
-
-static void open_file (cstr filename);
-
-//
-static bool continuous_drawing = false;
+//static bool continuous_drawing = false;
 
 static void set_continuous_drawing (bool state) {
 	if (continuous_drawing != state) {

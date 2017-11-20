@@ -64,7 +64,9 @@ static f32 dt =				QNAN; // DBG: invalid values for debugging
 
 static f32 avg_dt =			1.0f/60; // to get reasonable dt for first frame of smooth scrolling
 
-#include "glfw_engine.hpp"
+static bool continuous_drawing = false;
+static void set_continuous_drawing (bool state);
+
 #include "font.hpp"
 
 //
@@ -123,9 +125,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		indx_t	c; // char index the cursor is on (cursor appears on the left edge of the char it's on)
 	};
 	
-	Cursor	cursor;
+	Cursor		cursor;
+	Cursor		select_cursor;
 	
-	iv2		sub_wnd_dim;
+	iv2			sub_wnd_dim;
 	
 	// scrolling
 	indx_t		scroll;	// index of first line visible in text buffer window (from the top) (can overscroll, then this will be negative)
@@ -545,6 +548,35 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 
 Text_Buffer g_buf; // init to zero/null
 
+// input events
+static void move_cursor_left () {		g_buf.move_cursor_left();	}
+static void move_cursor_right () {		g_buf.move_cursor_right();	}
+static void move_cursor_up () {			g_buf.move_cursor_up();		}
+static void move_cursor_down () {		g_buf.move_cursor_down();	}
+static void scroll_page_up () {			g_buf.scroll_page_up();		}
+static void scroll_page_down () {		g_buf.scroll_page_down();	}
+static void mouse_scroll (s32 diff) {	g_buf.mouse_scroll(diff);	}
+
+static void insert_char (utf32 c) {		g_buf.insert_char(c);		}
+static void insert_tab () {				g_buf.insert_tab();			}
+static void insert_enter () {			g_buf.insert_enter();		}
+static void delete_prev () {			g_buf.delete_prev();		}
+static void delete_next () {			g_buf.delete_next();		}
+
+static void open_file (cstr filename) {	g_buf.open_file(filename);	}
+
+static void resize_wnd (iv2 dim) {
+	wnd_dim = dim;
+	g_buf.resize_sub_wnd(dim);
+}
+
+static void draw (cstr reason);
+static void init ();
+
+#include "glfw_engine.hpp"
+
+
+////
 static Shader_Text					shad_text;
 static Shader_Fullscreen_Tex_Copy	shad_text_copy;
 static Shader_Cursor_Pass			shad_cursor_pass;
@@ -554,9 +586,6 @@ static VBO_Cursor_Pass		vbo_cursor;
 typedef VBO_Cursor_Pass::V Vertex;
 
 static RGBA_Framebuffer		fb_text;
-
-static void pre_update ();
-static void draw ();
 
 static void init  () {
 	g_font.init("consola.ttf");
@@ -592,11 +621,6 @@ static void init  () {
 	}
 	
 	draw("init()");
-}
-
-static void resize_wnd (iv2 dim) {
-	wnd_dim = dim;
-	g_buf.resize_sub_wnd(dim);
 }
 
 static void draw (cstr reason) { // DBG: reason we drew a new frame
@@ -673,20 +697,3 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 		t_draw_end = now;
 	}
 }
-
-// input events
-static void move_cursor_left () {		g_buf.move_cursor_left();	}
-static void move_cursor_right () {		g_buf.move_cursor_right();	}
-static void move_cursor_up () {			g_buf.move_cursor_up();		}
-static void move_cursor_down () {		g_buf.move_cursor_down();	}
-static void scroll_page_up () {			g_buf.scroll_page_up();		}
-static void scroll_page_down () {		g_buf.scroll_page_down();	}
-static void mouse_scroll (s32 diff) {	g_buf.mouse_scroll(diff);	}
-
-static void insert_char (utf32 c) {		g_buf.insert_char(c);		}
-static void insert_tab () {				g_buf.insert_tab();			}
-static void insert_enter () {			g_buf.insert_enter();		}
-static void delete_prev () {		g_buf.delete_prev();	}
-static void delete_next () {		g_buf.delete_next();	}
-
-static void open_file (cstr filename) {	g_buf.open_file(filename);	}
