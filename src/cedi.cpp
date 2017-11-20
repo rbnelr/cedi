@@ -240,10 +240,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	void insert_tab () {
 		insert_char(U'\t');
 	}
-	void insert_newline () {
+	void insert_enter () {
 		// insert line after current line
-		auto& cur = lines[cursor.l];
 		auto& new_ = *lines.insert( lines.begin() +cursor.l +1, Line() );
+		auto& cur = lines[cursor.l];
 		
 		{ // Move chars after cursor to new line
 			auto b = cur.text.begin() +cursor.c;
@@ -282,7 +282,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		lines.erase( lines.begin() +(newline_l +1), lines.begin() +(newline_l +2) );
 	}
 	
-	void delete_prev_char () {
+	void delete_prev () {
 		if (cursor.c > 0) {
 			lines[cursor.l].text.erase( lines[cursor.l].text.begin() +(cursor.c -1) );
 			--cursor.c;
@@ -295,7 +295,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		
 		constrain_scroll_to_cursor();
 	}
-	void delete_next_char () {
+	void delete_next () {
 		if (cursor.c < lines[cursor.l].get_newlineless_len()) {
 			lines[cursor.l].text.erase( lines[cursor.l].text.begin() +cursor.c );
 		} else {
@@ -335,12 +335,12 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		auto count = get_max_visible_lines_count();
 		scroll = clamp(scroll, cursor.l -max(count -2, (indx_t)0), cursor.l);
 	}
-	void pageup_scroll () {
+	void scroll_page_up () {
 		scroll -= max(get_max_visible_lines_count() -2, (indx_t)1);
 		
 		constrain_scroll_to_overscroll_setting();
 	}
-	void pagedown_scroll () {
+	void scroll_page_down () {
 		scroll += max(get_max_visible_lines_count() -2, (indx_t)1);
 		
 		constrain_scroll_to_overscroll_setting();
@@ -679,14 +679,14 @@ static void move_cursor_left () {		g_buf.move_cursor_left();	}
 static void move_cursor_right () {		g_buf.move_cursor_right();	}
 static void move_cursor_up () {			g_buf.move_cursor_up();		}
 static void move_cursor_down () {		g_buf.move_cursor_down();	}
-static void pageup_scroll () {			g_buf.pageup_scroll();		}
-static void pagedown_scroll () {		g_buf.pagedown_scroll();	}
+static void scroll_page_up () {			g_buf.scroll_page_up();		}
+static void scroll_page_down () {		g_buf.scroll_page_down();	}
 static void mouse_scroll (s32 diff) {	g_buf.mouse_scroll(diff);	}
 
 static void insert_char (utf32 c) {		g_buf.insert_char(c);		}
 static void insert_tab () {				g_buf.insert_tab();			}
-static void insert_newline () {			g_buf.insert_newline();		}
-static void delete_prev_char () {		g_buf.delete_prev_char();	}
-static void delete_next_char () {		g_buf.delete_next_char();	}
+static void insert_enter () {			g_buf.insert_enter();		}
+static void delete_prev () {		g_buf.delete_prev();	}
+static void delete_next () {		g_buf.delete_next();	}
 
 static void open_file (cstr filename) {	g_buf.open_file(filename);	}

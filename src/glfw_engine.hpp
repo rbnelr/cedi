@@ -7,15 +7,15 @@ static void move_cursor_left ();
 static void move_cursor_right ();
 static void move_cursor_up ();
 static void move_cursor_down ();
-static void pageup_scroll ();
-static void pagedown_scroll ();
+static void scroll_page_up ();
+static void scroll_page_down ();
 static void mouse_scroll (s32 offs);
 
 static void insert_char (utf32 c);
 static void insert_tab ();
-static void insert_newline ();
-static void delete_prev_char ();
-static void delete_next_char ();
+static void insert_enter ();
+static void delete_prev ();
+static void delete_next ();
 
 static void open_file (cstr filename);
 
@@ -97,9 +97,13 @@ static void glfw_text_proc (GLFWwindow* window, ui codepoint) {
 	insert_char(codepoint);
 	draw("glfw_text_proc()");
 }
+
+#include "key_mapping.hpp"
+
 static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action, int mods) {
 	dbg_assert(action == GLFW_PRESS || action == GLFW_REPEAT || action == GLFW_RELEASE);
 	
+	#if 0
 	bool update = false;
 	
 	//cstr name = glfwGetKeyName(key, scancode);
@@ -111,16 +115,16 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 		
 		switch (key) {
 			case GLFW_KEY_BACKSPACE: {
-				delete_prev_char();
+				delete_prev();
 				update = true;
 			} break;
 			case GLFW_KEY_DELETE: {
-				delete_next_char();
+				delete_next();
 				update = true;
 			} break;
 			case GLFW_KEY_ENTER:
 			case GLFW_KEY_KP_ENTER: {
-				insert_newline();
+				insert_enter();
 				update = true;
 			} break;
 			case GLFW_KEY_TAB: {
@@ -146,11 +150,11 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 			} break;
 			
 			case GLFW_KEY_PAGE_UP: {
-				pageup_scroll();
+				scroll_page_up();
 				update = true;
 			} break;
 			case GLFW_KEY_PAGE_DOWN: {
-				pagedown_scroll();
+				scroll_page_down();
 				update = true;
 			} break;
 			
@@ -223,6 +227,29 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 	}
 	
 	if (update) draw("glfw_key_proc()");
+	#else
+	
+	bool needs_draw = true;
+	switch (map_event_to_cmd(key, action, mods)) {
+		case CMD_MOVE_CURSOR_LEFT:	move_cursor_left();		break;
+		case CMD_MOVE_CURSOR_RIGHT:	move_cursor_right();	break;
+		case CMD_MOVE_CURSOR_UP:	move_cursor_up();		break;
+		case CMD_MOVE_CURSOR_DOWN:	move_cursor_down();		break;
+		
+		case CMD_SCROLL_PAGE_UP:	scroll_page_up();		break;
+		case CMD_SCROLL_PAGE_DOWN:	scroll_page_down();		break;
+		
+		case CMD_INSERT_ENTER:		insert_enter();			break;
+		case CMD_INSERT_TAB:		insert_tab();			break;
+		
+		case CMD_DELETE_PREV:		delete_prev();			break;
+		case CMD_DELETE_NEXT:		delete_next();			break;
+				
+		default:	needs_draw = false;
+	}
+	
+	if (needs_draw) draw("glfw_key_proc()");
+	#endif
 }
 
 static void glfw_refresh (GLFWwindow* wnd) {
