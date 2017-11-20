@@ -52,7 +52,7 @@ struct Options {
 	
 	f32		tex_buffer_margin =				4;
 	
-	f32		overscroll_fraction =			0.4f;
+	f32		overscroll_fraction =			1;//0.4f;
 };
 
 static Options opt;
@@ -127,6 +127,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	Cursor		cursor;
 	Cursor		select_cursor;
+	bool		selecting;
 	
 	iv2			sub_wnd_dim;
 	
@@ -135,6 +136,18 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	
 	// when smooth scrolling is enabled 'scroll' only defines the target to scroll to, 'smooth_scroll' is the actual scroll position
 	f32			smooth_scroll;
+	
+	void reset () {
+		cursor.l =			0;
+		cursor.c =			0;
+		select_cursor.l =	0;
+		select_cursor.c =	0;
+		selecting =			true;
+		
+		scroll =			0;
+		smooth_scroll =		0;
+		
+	}
 	
 	bool smooth_scroll_update () {
 		if ( abs((f32)scroll -smooth_scroll) < 0.01f ) {
@@ -194,7 +207,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 	//
 	void move_cursor_left () {
 		if (cursor.c > 0) {
-			--cursor.c;
+			cursor.c = min( cursor.c -1, lines[cursor.l].get_max_cursor_c() -1 ); // could happen when cursor is on newline and newline drawing gets disabled
 		} else {
 			if (cursor.l > 0) {
 				--cursor.l;
@@ -311,6 +324,13 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		constrain_scroll_to_cursor();
 	}
 	
+	void start_select () {
+		select_cursor = cursor;
+	}
+	void stop_select () {
+		
+	}
+	
 	void open_file (cstr filename) {
 		std::vector<byte> tmp;
 		if (load_file_skip_bom(filename, &tmp, UTF8_BOM, arrlen(UTF8_BOM))) {
@@ -321,13 +341,6 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		}
 	}
 	
-	void constrain_scroll_to_overscroll_setting () {
-		auto count = get_max_visible_lines_count();
-		
-		indx_t ov = (indx_t)( lerp(count -1, (indx_t)1, opt.overscroll_fraction) +0.5f );
-		
-		scroll = clamp(scroll, 0 -max(count -1 -ov, (indx_t)0), (indx_t)(lines.size() -ov));
-	}
 	void constrain_scroll_to_buf () {
 		indx_t ov = 1;
 		
@@ -338,16 +351,7 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		auto count = get_max_visible_lines_count();
 		scroll = clamp(scroll, cursor.l -max(count -2, (indx_t)0), cursor.l);
 	}
-	void scroll_page_up () {
-		scroll -= max(get_max_visible_lines_count() -2, (indx_t)1);
-		
-		constrain_scroll_to_overscroll_setting();
-	}
-	void scroll_page_down () {
-		scroll += max(get_max_visible_lines_count() -2, (indx_t)1);
-		
-		constrain_scroll_to_overscroll_setting();
-	}
+	
 	void mouse_scroll (s32 diff) {
 		scroll -= diff;
 		constrain_scroll_to_buf();
@@ -358,19 +362,32 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 		constrain_scroll_to_cursor();
 	}
 	
-	//
-	std::vector<VBO_Text::V> vbo_char_vert_data;
-	
-	void init () {
-		cursor.l = 0;
-		cursor.c = 0;
-		
-		scroll = 0;
-		smooth_scroll = 0;
-		
-		//open_file("src/cedi.cpp");
-		open_file("build.bat");
+	indx_t get_overscroll_lines_count (indx_t max_visible_lines) {
+		if (max_visible_lines < 3) return 0;
+		return (indx_t)( lerp((indx_t)1, max_visible_lines -1 -1, opt.overscroll_fraction) +0.5f );
 	}
+	void scroll_page_up () {
+		indx_t count = get_max_visible_lines_count();
+		indx_t ov = get_overscroll_lines_count(count);
+		
+		//printf(">>>> %lld\n", ov);
+		
+		scroll -= max(count, (indx_t)3) -2;
+		
+		//scroll = max(scroll, -ov);
+	}
+	void scroll_page_down () {
+		indx_t count = get_max_visible_lines_count();
+		indx_t ov = get_overscroll_lines_count(count);
+		
+		scroll += max(count, (indx_t)3) -2;
+		
+		//scroll = clamp(scroll, 0 -max(count -1 -ov, (indx_t)0), (indx_t)(lines.size() -ov));
+	}
+	
+	//
+	std::vector<VBO_Text::V>		vbo_char_vert_data;
+	
 	void init_from_str (utf8 const* str, u64 len) {
 		
 		lines.clear();
@@ -393,24 +410,44 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			}
 		}
 		
-		cursor.l = 0;
-		cursor.c = 0;
-		
-		scroll = 0;
-		smooth_scroll = 0;
-		
+		reset();
 	}
 	
-	struct Cursor_Rect {
+	struct Cursor_Box {
 		v2 pos;
 		v2 dim;
 	};
+	Cursor_Box				cursor_box;
+	std::vector<Cursor_Box>	selection_boxes;
 	
-	Cursor_Rect generate_layout () {
+	void generate_layout () {
 		
 		vbo_char_vert_data.clear();
+		selection_boxes.clear();
 		
 		auto vis_lines = get_visible_line_range();
+		
+		Cursor* cursor_low;
+		Cursor* cursor_high;
+		{
+			if (		cursor.l == select_cursor.l ) {
+				if (cursor.c <= select_cursor.c) {
+					cursor_low =	&cursor;
+					cursor_high =	&select_cursor;
+				} else {
+					cursor_low =	&select_cursor;
+					cursor_high =	&cursor;
+				}
+			} else if (	cursor.l < select_cursor.l ) {
+				cursor_low =		&cursor;
+				cursor_high =		&select_cursor;
+			} else /* (	cursor.l > select_cursor.l */ {
+				cursor_low =		&select_cursor;
+				cursor_high =		&cursor;
+			}
+			
+			//printf(">> select %llu:%llu - %llu:%llu\n", cursor_low->l,cursor_low->c, cursor_high->l,cursor_high->c);
+		}
 		
 		f32	pos_x_px;
 		//f32	pos_y_px = g_font.ascent_plus_gap +opt.tex_buffer_margin +(f32)((s64)g_font.line_height * -scroll);
@@ -464,7 +501,10 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			
 			indx_t tab_char_i=0;
 			
-			auto draw_escaped_char = [&] (utf32 c) {
+			auto emit_char = [&] (utf32 c, v3 col) {
+				emit_glyph(c, col);
+			};
+			auto emit_escaped_char = [&] (utf32 c) {
 				auto tmp = pos_x_px;
 				emit_glyph(U'\\', opt.col_draw_whitespace);
 				pos_x_px = lerp(tmp, pos_x_px, 0.6f); // squash \ and c closer together to make it seem like 1 glyph
@@ -472,51 +512,52 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 				emit_glyph(c, opt.col_draw_whitespace);
 				++tab_char_i;
 			};
+			auto emit_tab = [&] () {
+				indx_t spaces_needed = opt.tab_spaces -(tab_char_i % opt.tab_spaces);
+				
+				for (indx_t j=0; j<spaces_needed; ++j) {
+					auto c = U' ';
+					if (opt.draw_whitespace) {
+						c = j<spaces_needed-1 ? U'—' : U'→';
+					}
+					
+					emit_glyph(c, opt.col_draw_whitespace);
+					
+					++tab_char_i;
+				}
+			};
 			
 			for (indx_t char_i=0; char_i<(indx_t)l.text.size(); ++char_i) {
-				utf32 c = l.text[ char_i ];
-				
 				l.chars_x_px.push_back(pos_x_px);
 				
+				utf32 c = l.text[ char_i ];
 				switch (c) {
 					case U'\t': {
-						indx_t spaces_needed = opt.tab_spaces -(tab_char_i % opt.tab_spaces);
-						
-						for (indx_t j=0; j<spaces_needed; ++j) {
-							auto c = U' ';
-							if (opt.draw_whitespace) {
-								c = j<spaces_needed-1 ? U'—' : U'→';
-							}
-							
-							emit_glyph(c, opt.col_draw_whitespace);
-							
-							++tab_char_i;
-						}
-						
+						emit_tab();
 					} break;
 					
 					case U'\n': {
-						if (opt.draw_whitespace) draw_escaped_char(U'n');
+						if (opt.draw_whitespace) emit_escaped_char(U'n');
 					} break;
 					case U'\r': {
-						if (opt.draw_whitespace) draw_escaped_char(U'r');
+						if (opt.draw_whitespace) emit_escaped_char(U'r');
 					} break;
 					case U'\0': {
-						draw_escaped_char(U'0');
+						emit_escaped_char(U'0');
 					} break;
 					
 					case U' ': {
 						if (opt.draw_whitespace) {
-							emit_glyph(U'·', opt.col_draw_whitespace);
+							emit_char(U'·', opt.col_draw_whitespace);
 						} else {
-							emit_glyph(c, opt.col_text);
+							emit_char(c, opt.col_text);
 						}
 						
 						++tab_char_i;
 					} break;
 					
 					default: {
-						emit_glyph(c, opt.col_text);
+						emit_char(c, opt.col_text);
 						++tab_char_i;
 					} break;
 				}
@@ -524,24 +565,45 @@ struct Text_Buffer { // A buffer (think file) that the editor can display, it co
 			
 			l.chars_x_px.push_back(pos_x_px); // push char pos for imaginary last character, to be able to determine width of last char on line
 			
+			if (selecting && line_i >= cursor_low->l && line_i <= cursor_high->l) { // emit selection boxes
+				u32 c = 0;
+				u32 max_c = l.chars_x_px.size() -1;
+				
+				if (line_i == cursor_low->l)		c = cursor_low->c;
+				if (line_i == cursor_high->l)	max_c = cursor_high->c +1;
+				
+				f32 x = l.chars_x_px[c];
+				f32 w = l.chars_x_px[min((size_t)max_c, l.chars_x_px.size() -1)] -x;
+				
+				if (!opt.draw_whitespace && max_c >= l.get_newlineless_len() && line_i != (lines.size() -1)) {
+					w += opt.min_cursor_w_px;
+				}
+				
+				Cursor_Box	s = {	v2(x -g_font.border_left, pos_y_px -g_font.line_height +g_font.descent_plus_gap),
+									v2(w, g_font.line_height) };
+				
+				selection_boxes.push_back(s);
+			}
+			
 			pos_y_px += g_font.line_height;
 			
 		}
 		
-		//
-		f32 x = lines[cursor.l].chars_x_px[ cursor.c ];
-		
-		f32 w = 0;
-		if (cursor.c < (indx_t)(lines[cursor.l].chars_x_px.size() -1)) {
-			w = lines[cursor.l].chars_x_px[ cursor.c +1 ] -x; // could be imaginary last character
+		{ // emit cursor box
+			f32 x = lines[cursor.l].chars_x_px[ cursor.c ];
+			
+			f32 w = 0;
+			if (cursor.c < (indx_t)(lines[cursor.l].chars_x_px.size() -1)) {
+				w = lines[cursor.l].chars_x_px[ cursor.c +1 ] -x; // could be imaginary last character
+			}
+			// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
+			w *= opt.min_cursor_w_percent_of_char;
+			
+			w = max(w, opt.min_cursor_w_px);
+			
+			cursor_box = {	v2(x -g_font.border_left, lines[cursor.l].pos_y -g_font.line_height +g_font.descent_plus_gap),
+							v2(w, g_font.line_height) };
 		}
-		// w might end up zero because either the final few chars on the line are invisible (newline because draw_whitespace is off) or is not a character (end of file)
-		w *= opt.min_cursor_w_percent_of_char;
-		
-		w = max(w, opt.min_cursor_w_px);
-		
-		return {	v2(x -g_font.border_left, lines[cursor.l].pos_y -g_font.line_height +g_font.descent_plus_gap),
-					v2(w, g_font.line_height) };
 	}
 	
 };
@@ -563,6 +625,9 @@ static void insert_enter () {			g_buf.insert_enter();		}
 static void delete_prev () {			g_buf.delete_prev();		}
 static void delete_next () {			g_buf.delete_next();		}
 
+static void start_select () {			g_buf.start_select();		}
+static void stop_select () {			g_buf.stop_select();		}
+
 static void open_file (cstr filename) {	g_buf.open_file(filename);	}
 
 static void resize_wnd (iv2 dim) {
@@ -583,8 +648,6 @@ static Shader_Cursor_Pass			shad_cursor_pass;
 
 static VBO_Cursor_Pass		vbo_cursor;
 
-typedef VBO_Cursor_Pass::V Vertex;
-
 static RGBA_Framebuffer		fb_text;
 
 static void init  () {
@@ -598,7 +661,9 @@ static void init  () {
 	
 	fb_text				.init();
 	
-	g_buf.init();
+	//g_buf.open_file("src/cedi.cpp");
+	//g_buf.open_file("build.bat");
+	g_buf.open_file("test.cpp");
 	
 	{ // show window
 		auto mr = get_monitor_rect();
@@ -631,7 +696,7 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 	
 	bool started_smooth_scrolling = g_buf.smooth_scroll_update();
 	
-	auto cursor_rect = g_buf.generate_layout();
+	g_buf.generate_layout();
 	
 	{ // text pass
 		fb_text.bind_and_clear(wnd_dim, v4(0));
@@ -665,16 +730,16 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 		shad_cursor_pass.col_background.set( opt.col_background );
 		shad_cursor_pass.col_highlighted.set( opt.col_text_highlighted );
 		
-		{
-			auto& r = cursor_rect;
+		for (auto box : g_buf.selection_boxes) {
+			v3 col = v3(0.8f);
 			
-			std::initializer_list<Vertex> data = {
-				{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor,1) },
-				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
-				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
-				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor,1) },
-				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor,1) },
-				{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor,1) },
+			std::initializer_list<VBO_Cursor_Pass::V> data = {
+				{ box.pos +box.dim * v2(1,0), v4(col, 1) },
+				{ box.pos +box.dim * v2(1,1), v4(col, 1) },
+				{ box.pos +box.dim * v2(0,0), v4(col, 1) },
+				{ box.pos +box.dim * v2(0,0), v4(col, 1) },
+				{ box.pos +box.dim * v2(1,1), v4(col, 1) },
+				{ box.pos +box.dim * v2(0,1), v4(col, 1) },
 			};
 			
 			vbo_cursor.upload(data);
@@ -682,6 +747,25 @@ static void draw (cstr reason) { // DBG: reason we drew a new frame
 			
 			glDrawArrays(GL_TRIANGLES, 0, data.size());
 		}
+		
+		{
+			auto& r = g_buf.cursor_box;
+			
+			std::initializer_list<VBO_Cursor_Pass::V> data = {
+				{ r.pos +r.dim * v2(1,0), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(0,0), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(1,1), v4(opt.col_cursor, 0.8f) },
+				{ r.pos +r.dim * v2(0,1), v4(opt.col_cursor, 0.8f) },
+			};
+			
+			vbo_cursor.upload(data);
+			vbo_cursor.bind(shad_cursor_pass);
+			
+			glDrawArrays(GL_TRIANGLES, 0, data.size());
+		}
+		
 	}
 	
 	platform_present_frame();

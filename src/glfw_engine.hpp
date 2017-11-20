@@ -47,7 +47,7 @@ static void toggle_fullscreen () {
 	}
 	fullscreen = !fullscreen;
 	
-	glfwSwapInterval(1); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
+	glfwSwapInterval(0); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
 	
 }
 static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
@@ -118,17 +118,29 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 	}
 	
 	if (!input_mapped) {
-		input_mapped = true;
 		
 		switch (key) {
+			case GLFW_KEY_LEFT_SHIFT:
+			case GLFW_KEY_RIGHT_SHIFT:
+				if (action != GLFW_REPEAT) {
+					if (action == GLFW_PRESS)	start_select();
+					else						stop_select();
+					input_mapped = true;
+				} break;
+			
+			//
 			case GLFW_KEY_F11:
 				if (action == GLFW_PRESS) {
 					toggle_fullscreen();
+					
+					input_mapped = true;
 				} break;
 			
 			case GLFW_KEY_N:
 				if (action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
 					opt.draw_whitespace = !opt.draw_whitespace;
+					
+					input_mapped = true;
 				} break;
 			
 			case GLFW_KEY_O:
@@ -144,14 +156,17 @@ static void glfw_key_proc (GLFWwindow* window, int key, int scancode, int action
 					}
 					
 					open_file(_filename_buf);
+					
+					input_mapped = true;
 				} break;
 			
 			case GLFW_KEY_T:
 				if ((action == GLFW_PRESS || action == GLFW_RELEASE) && (mods & GLFW_MOD_ALT)) {
 					_resizing_tab_spaces = action == GLFW_PRESS;
+					
+					input_mapped = true;
 				} break;
 			
-			default: input_mapped = false;
 		}
 	}
 	
